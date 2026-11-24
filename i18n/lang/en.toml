@@ -39,6 +39,7 @@ left_handed = "Left-handed"
 watch_size = "Watch size"
 clock_24h = "24-hour clock"
 boot_anim = "Startup animation"
+watch_lock = "Lock watch position"              # grip can't move the watch
 watch_position = "Watch position"
 reset = "Reset"                     # button: watch back to its default spot
 autostart = "Start with SteamVR"

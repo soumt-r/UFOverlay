@@ -3,8 +3,8 @@
 </p>
 
 <h1 align="center">UFOverlay</h1>
-<p align="center"><b>Ultra Fast Overlay</b> — a tiny SteamVR desktop & window overlay.<br>
-Only the essentials, and nothing running while you're not looking.</p>
+<p align="center">A small SteamVR overlay for your monitors and windows.<br>
+It tries to do a few things well and stay out of the way.</p>
 <p align="center"><a href="README.ko.md">한국어</a></p>
 
 <p align="center">
@@ -12,52 +12,55 @@ Only the essentials, and nothing running while you're not looking.</p>
   <img src="docs/images/settings.png" width="300" alt="Settings panel">
 </p>
 
+> UFOverlay is an early hobby project. It works well on my setup, but it has
+> only been tested on a few machines — bug reports and feedback are very welcome.
+
 ## What it does
 
-- **Monitors and windows as panels in VR** — pick any monitor or app window and it floats in front of you, outside the SteamVR dashboard.
-- **Grab, move, push, zoom** — grip to move a panel, push / pull it with the stick, grip it with both hands to resize.
-- **Real mouse & keyboard** — click, drag, right-click and scroll with the controller; a built-in VR keyboard that follows your IME (한/영, あ/A).
-- **A watch on your wrist** — clock and batteries on the back of your hand; it appears when you look at it, like a real watch. Tap it for the menu.
-- **Pin to hand, gather, remember** — carry a small window on your other hand, pull every panel back in front of you, and get your layout back next time.
-- **Korean · Japanese · English**, and more languages and keyboard layouts can be added as plain TOML files.
+- **Monitors and windows as panels in VR.** Pick a monitor or an app window and it floats in front of you, outside the SteamVR dashboard.
+- **Move them around.** Grip to move a panel, push / pull it with the stick, grip it with both hands to resize. Lock a panel to make it view-only.
+- **Mouse and keyboard.** Click, drag, right-click and scroll with the controller. There is a VR keyboard that follows your input method (한/영, あ/A).
+- **A watch on your wrist.** Clock and batteries on the back of your hand; it shows up when you look at it. Tap it to open the menu.
+- **Small conveniences.** Carry a window on your other hand, gather all panels in front of you, and get your layout back next time.
+- **Korean, Japanese and English.** Other languages and keyboard layouts can be added as TOML files.
 
 <p align="center">
   <img src="docs/images/wrist.png" width="240" alt="Wrist watch with clock and batteries">
   &nbsp;
-  <img src="docs/images/toolbar.png" width="420" alt="Panel toolbar">
+  <img src="docs/images/toolbar.png" width="440" alt="Panel toolbar">
 </p>
 <p align="center"><img src="docs/images/keyboard_ko.png" width="640" alt="VR keyboard, Korean layout"></p>
 
-## Light by design
+## Keeping it light
 
-The executable is about **680 KB**. No game engine, no browser, no UI framework — one thread and one Direct3D 11 device.
+The goal is to use as little as possible while you're playing: the
+executable is about 680 KB and runs on a single thread without a game engine,
+browser or UI framework.
 
-Measured on an RTX 4060 Laptop with a 2560×1440 @ 240 Hz desktop (release build):
+Numbers from my machine (RTX 4060 Laptop, 2560×1440 @ 240 Hz desktop, release
+build). Yours will differ:
 
 | State | CPU | Memory |
 |---|---|---|
-| Nothing open, watch hidden | ~2–3 ms per second (≈0.3 % of one core) | ~50 MB |
-| Nothing open, watch visible and animating | ~6 ms per second | ~50 MB |
+| Nothing open, watch hidden | ~2–3 ms per second | ~50 MB |
+| Nothing open, watch visible | ~6 ms per second | ~50 MB |
 | One monitor panel, not pointed at | ~11 ms per second | ~58 MB |
-| Pointing at a panel (72 fps, 90 Hz input) | ~32 ms per second | ~58 MB |
+| Pointing at a panel | ~32 ms per second | ~58 MB |
 
-Memory is mostly the graphics driver. How it stays this light:
+Most of the memory is the graphics driver. The main ideas:
 
-1. **Pixels never leave the GPU.** Windows.Graphics.Capture frames are copied GPU-side into a texture SteamVR samples directly.
-2. **Event-driven.** An unchanged screen produces no frames and no work; the loop sleeps until a frame arrives or a deadline is due.
-3. **Adaptive frame rate.** Panels refresh at a low rate unless you point at them, and Windows is asked to throttle capture itself, so a 240 Hz desktop is never copied 240 times a second.
-4. **Pointer hit-testing is local math** on transforms we already know — no round-trips to SteamVR.
-5. **Held and pinned panels ride on the controller** in the compositor, so they follow your hand with zero lag and no per-frame updates.
-6. **Static images are redrawn only when they change** (menu, toolbar, keyboard), and the watch animates only while you look at it.
-7. **OpenVR without an SDK build.** `openvr_api.dll` is loaded from your SteamVR install and called through its flat function tables.
+- Captured frames stay on the GPU and are handed to SteamVR as textures.
+- Nothing is redrawn when nothing changes; panels refresh slowly unless you point at them.
+- Pointer hit-testing and held / pinned panels avoid per-frame calls to SteamVR.
+- OpenVR is used through the `openvr_api.dll` that comes with SteamVR, so no SDK build is needed.
 
 ## Install
 
-Requirements: Windows 10 (1903+) or 11, SteamVR, a Direct3D 11 GPU.
+Requirements: Windows 10 (1903 or later) or 11, SteamVR, a Direct3D 11 GPU.
 
-1. Download the latest zip from **Releases** and unzip it anywhere.
+1. Download the zip from [Releases](https://github.com/soumt-r/UFOverlay/releases) and unzip it anywhere.
 2. Start SteamVR, then run `ufoverlay.exe`.
-3. To start it with SteamVR every time: menu → ⚙ → **Start with SteamVR**.
+3. To start it together with SteamVR: menu → ⚙ → **Start with SteamVR**.
 
 ## Controls
 
@@ -70,35 +73,35 @@ Requirements: Windows 10 (1903+) or 11, SteamVR, a Direct3D 11 GPU.
 | Scroll | Point, stick up / down |
 | Move a panel | Point, hold grip, move; release to drop it |
 | Push away / pull closer | Hold grip, stick up / down |
-| Resize | Hold a panel with one hand, grip it with the other, move hands apart / together |
-| Panel toolbar | Appears under a panel while you point at it: **Video** (stay at full fps), **Keyboard**, **Pin** (carry it on your other hand), **✕** |
-| Gather / hide all | Menu buttons at the bottom |
-| Move the watch | Point at it, grip, place it; the spot is saved |
+| Resize | Hold a panel with one hand, grip it with the other, move your hands apart / together |
+| Panel toolbar | Shows under a panel while you point at it: **Video** (keep refreshing at full speed), **Keyboard**, **Pin** (carry it on your other hand), **🔒** (view only), **✕** |
+| Gather / hide all | Buttons at the bottom of the menu |
+| Move the watch | Point at it, grip, place it (can be locked in Settings) |
 
-While you point at UFOverlay, that hand's trigger, grip and stick are kept from the game (can be turned off in Settings).
+While you point at UFOverlay, that hand's trigger, grip and stick are kept from the game. This can be turned off in Settings, and locked panels never block the game.
 
 ## Settings
 
-Everything is in the in-VR settings panel (menu → ⚙) and applies immediately: language, idle / pointing frame rates, panel opacity and spawn distance, scroll and push speed, jitter smoothing, input blocking, left-handed mode, watch size and 24-hour clock, startup animation, start with SteamVR, and controlling admin windows.
+The settings panel (menu → ⚙) applies changes right away: language, refresh rates, panel opacity and distance, scroll and push speed, jitter smoothing, input blocking, left-handed mode, watch size / 24-hour clock / position lock, startup animation, starting with SteamVR, and controlling admin windows.
 
-The same values live in `ufoverlay.ini` next to the exe. Panel layout is saved in `layout.txt`, logs in `ufoverlay.log`, controller bindings in `input/` (rebindable in SteamVR's controller settings).
+The same values are stored in `ufoverlay.ini` next to the exe. The panel layout is saved in `layout.txt`, logs go to `ufoverlay.log`, and controller bindings are in `input/` (they can be changed in SteamVR's controller settings).
 
-**Admin windows:** Windows blocks input from normal apps into elevated windows. Turning this option on shows one UAC prompt **on your PC screen** (it can't appear in VR); after that UFOverlay restarts elevated through a Task Scheduler entry, without further prompts. Turning it off removes the entry.
+**Admin windows:** Windows doesn't let normal apps send input to elevated windows. If you turn this option on, one UAC prompt appears **on your PC screen** (it can't be shown in VR). After that UFOverlay restarts elevated through a Task Scheduler entry and won't ask again. Turning the option off removes the entry.
 
 ## Languages and keyboard layouts
 
-UI text and keyboard layouts are standard TOML files in [`i18n/`](i18n/). Drop a new file into `i18n/lang/` or `i18n/keyboards/` next to the exe and restart — no rebuild. See [i18n/README.md](i18n/README.md) for the format and key names.
+UI text and keyboard layouts are TOML files in [`i18n/`](i18n/). You can drop a new file into `i18n/lang/` or `i18n/keyboards/` next to the exe and restart, without rebuilding. [i18n/README.md](i18n/README.md) explains the format. Corrections to the existing translations are welcome too.
 
 ## Build from source
 
 ```powershell
 cargo build --release        # target\release\ufoverlay.exe
-cargo test                   # unit tests, translation and layout checks
+cargo test
 ```
 
-Needs Rust (MSVC toolchain). No C++ toolchain or OpenVR SDK build is required.
+You only need Rust (MSVC toolchain); the version is pinned in `rust-toolchain.toml`.
 
-Developer flags: `--spawn` (open the primary monitor), `--spawn-window <title>`, `--spawn-aim` (panel where the right controller points — moves the real mouse), `--no-layout`, `--ime-test`.
+Developer flags: `--spawn` (open the primary monitor), `--spawn-window <title>`, `--spawn-aim` (panel where the right controller points; this moves the real mouse), `--no-layout`, `--ime-test`.
 
 Regenerating assets: `cargo test make_icons -- --ignored` (icon) and `cargo test docs_images -- --ignored` (these screenshots), then `python tools/compress_png.py docs/images` / `python tools/compress_icons.py`. `tools/gen_fntable.py` regenerates the OpenVR function-table indices from `vendor/openvr_capi.h`.
 
@@ -124,11 +127,12 @@ i18n/            language packs and keyboard layouts (TOML)
 
 ## Known limitations
 
-- Only tested with Quest controllers over Virtual Desktop so far; Index bindings are included but less tested.
+- So far it has mainly been tested with Quest controllers over Virtual Desktop. Index bindings are included but have seen little testing.
 - Panels are flat (no curvature) and can't be rotated freely yet.
+- The UI scale and default watch position may not suit every headset or hand size yet.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Third-party components (Valve's OpenVR header, BSD-3-Clause; windows-rs, MIT) are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which ships with every release.
+MIT, see [LICENSE](LICENSE). Third-party components (Valve's OpenVR header, BSD-3-Clause; windows-rs, MIT) are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which is included in every release.
 
 UFOverlay is an independent project, not affiliated with or endorsed by Valve Corporation. SteamVR is a trademark of Valve Corporation.

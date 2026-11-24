@@ -15,6 +15,8 @@ pub struct Saved {
     pub src: SavedSrc,
     pub width: f32,
     pub live: bool,
+    /// Input locked (view only).
+    pub locked: bool,
     pub world: [f32; 12],
     /// (hand, panel-in-controller transform) for panels carried on a hand.
     pub attached: Option<(usize, [f32; 12])>,
@@ -44,7 +46,9 @@ pub fn encode(panels: &[Saved]) -> String {
             Some((h, m)) => format!("{h}:{}", floats(m)),
             None => "-".into(),
         };
-        let common = format!("{:.4}\t{}\t{}\t{}", p.width, p.live as u8, floats(&p.world), attach);
+        // flags: bit 0 = video (live), bit 1 = input locked. Old files have 0/1.
+        let flags = p.live as u8 | (p.locked as u8) << 1;
+        let common = format!("{:.4}\t{}\t{}\t{}", p.width, flags, floats(&p.world), attach);
         match &p.src {
             SavedSrc::Monitor { rect } => {
                 out.push_str(&format!("monitor\t{},{},{},{}\t{common}\n", rect[0], rect[1], rect[2], rect[3]));
@@ -79,7 +83,8 @@ pub fn decode(txt: &str) -> Vec<Saved> {
         };
         let (Ok(width), Some(world)) = (rest[0].parse::<f32>(), parse12(rest[2])) else { continue };
         let attached = rest[3].split_once(':').and_then(|(h, m)| Some((h.parse::<usize>().ok()?.min(1), parse12(m)?)));
-        out.push(Saved { src, width, live: rest[1] == "1", world, attached });
+        let flags: u8 = rest[1].parse().unwrap_or(0);
+        out.push(Saved { src, width, live: flags & 1 != 0, locked: flags & 2 != 0, world, attached });
     }
     out
 }
@@ -100,11 +105,12 @@ mod tests {
     fn roundtrip_monitor_and_window() {
         let m = [1., 0., 0., 0.5, 0., 1., 0., 1.4, 0., 0., 1., -1.];
         let panels = vec![
-            Saved { src: SavedSrc::Monitor { rect: [0, 0, 2560, 1440] }, width: 1.2, live: false, world: m, attached: None },
+            Saved { src: SavedSrc::Monitor { rect: [0, 0, 2560, 1440] }, width: 1.2, live: false, locked: true, world: m, attached: None },
             Saved {
                 src: SavedSrc::Window { exe: "Discord.exe".into(), class: "Chrome_WidgetWin_1".into(), title: "#일반\t| 서버".into() },
                 width: 0.6,
                 live: true,
+                locked: false,
                 world: m,
                 attached: Some((0, m)),
             },

@@ -22,6 +22,7 @@ pub enum Id {
     LeftHanded,
     Admin,
     Language,
+    WristLock,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -58,6 +59,7 @@ pub fn items() -> Vec<Item> {
         it(WristSize, "settings.wrist", "settings.watch_size", Num { min: 0.05, max: 0.15, step: 0.01 }),
         it(Wrist24h, "settings.wrist", "settings.clock_24h", Toggle),
         it(BootAnim, "settings.wrist", "settings.boot_anim", Toggle),
+        it(WristLock, "settings.wrist", "settings.watch_lock", Toggle),
         it(WristReset, "settings.wrist", "settings.watch_position", Action("settings.reset")),
         it(Autostart, "settings.startup", "settings.autostart", Toggle),
         it(Admin, "settings.startup", "settings.admin", Toggle),

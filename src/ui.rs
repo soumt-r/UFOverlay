@@ -244,6 +244,24 @@ fn icon_pin(c: &mut Canvas, x: f32, y: f32, s: f32, col: Rgba) {
     c.circle(x + s * 0.5, y + s * 0.38, s * 0.11, SKY_2);
 }
 
+fn icon_lock(c: &mut Canvas, x: f32, y: f32, s: f32, col: Rgba, bg: Rgba, open: bool) {
+    // Shackle (lifted to one side when unlocked) + body + keyhole.
+    let (l, r, top) = (x + s * 0.28, x + s * 0.72, y + s * 0.08);
+    let lift = if open { s * 0.12 } else { 0.0 };
+    let t = s * 0.11;
+    c.line(l, y + s * 0.46 - lift, l, top + s * 0.18 - lift, t, col);
+    c.line(r, y + s * 0.46, r, top + s * 0.18 - lift, t, col);
+    c.fill_sdf(l - t, top - lift - t, r + t, top + s * 0.25 - lift, col, |px, py| {
+        let (cx, cy, rad) = ((l + r) / 2.0, top + s * 0.2 - lift, (r - l) / 2.0);
+        if py > cy {
+            return 9.0;
+        }
+        (((px - cx).powi(2) + (py - cy).powi(2)).sqrt() - rad).abs() - t / 2.0
+    });
+    c.round_rect(x + s * 0.14, y + s * 0.44, s * 0.72, s * 0.52, s * 0.1, col);
+    c.circle(x + s * 0.5, y + s * 0.66, s * 0.07, bg);
+}
+
 fn icon_gather(c: &mut Canvas, x: f32, y: f32, s: f32, col: Rgba) {
     // Three little panels converging on a dot.
     c.round_rect(x, y + s * 0.3, s * 0.26, s * 0.36, s * 0.05, col);
@@ -308,6 +326,7 @@ pub enum Action {
     Live,
     Keyboard,
     Pin,
+    Lock,
     Close,
 }
 
@@ -317,7 +336,7 @@ pub struct Button {
     pub action: Action,
 }
 
-pub const TB_W: u32 = 700;
+pub const TB_W: u32 = 780;
 pub const TB_H: u32 = 96;
 
 pub struct ToolbarState {
@@ -325,6 +344,8 @@ pub struct ToolbarState {
     pub kb_open: bool,
     /// Carried on a controller.
     pub pinned: bool,
+    /// Input locked: view only.
+    pub locked: bool,
 }
 
 /// Small pill under a panel (only while you point at it): 영상 · 키보드 · 손에 · 닫기.
@@ -336,10 +357,11 @@ pub fn toolbar(st: &ToolbarState) -> (Canvas, Vec<Button>) {
     let bh = h - pad * 2.0;
     let mut labels: Vec<Label> = Vec::new();
     let mut buttons = Vec::new();
-    let specs: [(f32, &str, bool, Action); 4] = [
+    let specs: [(f32, &str, bool, Action); 5] = [
         (188.0, tr("toolbar.video"), st.live, Action::Live),
         (188.0, tr("toolbar.keyboard"), st.kb_open, Action::Keyboard),
         (188.0, if st.pinned { tr("toolbar.pinned") } else { tr("toolbar.pin") }, st.pinned, Action::Pin),
+        (bh, "", st.locked, Action::Lock),
         (bh, "", false, Action::Close),
     ];
     let mut x = pad;
@@ -353,6 +375,10 @@ pub fn toolbar(st: &ToolbarState) -> (Canvas, Vec<Button>) {
             Action::Live => icon_play(&mut c, x + 26.0, iy, is, if on { INK } else { MINT }),
             Action::Keyboard => icon_keyboard(&mut c, x + 22.0, iy, is * 1.15, if on { INK } else { LAVENDER }),
             Action::Pin => icon_pin(&mut c, x + 26.0, iy, is, if on { INK } else { BULB }),
+            Action::Lock => {
+                let bg = if on { MINT } else { SKY_2 };
+                icon_lock(&mut c, x + (bw - is) / 2.0, iy, is, if on { INK } else { DIM }, bg, !on)
+            }
             Action::Close => icon_close(&mut c, x + (bw - is) / 2.0, iy, is, CLOSE),
         }
         if !name.is_empty() {
@@ -880,8 +906,8 @@ mod tests {
 
     #[test]
     fn toolbar_buttons_hit_regions_dont_overlap() {
-        let (_, b) = toolbar(&ToolbarState { live: false, kb_open: false, pinned: false });
-        assert_eq!(b.len(), 4);
+        let (_, b) = toolbar(&ToolbarState { live: false, kb_open: false, pinned: false, locked: false });
+        assert_eq!(b.len(), 5);
         for w in b.windows(2) {
             assert!(w[0].x1 <= w[1].x0);
         }
@@ -923,7 +949,7 @@ mod tests {
             ("YouTube - Mozilla Firefox".into(), false, true),
         ];
         save("menu.png", &menu(&items, Some(MenuHit::Source(1)), false).0);
-        save("toolbar.png", &toolbar(&ToolbarState { live: true, kb_open: false, pinned: false }).0);
+        save("toolbar.png", &toolbar(&ToolbarState { live: true, kb_open: false, pinned: false, locked: false }).0);
         let rows: Vec<RowView> = crate::settings::items()
             .into_iter()
             .take(8)
@@ -991,7 +1017,7 @@ mod tests {
             ("Claude".into(), false, true),
         ];
         write_png(&dir.join("menu.png"), &menu(&items, Some(MenuHit::Source(1)), false).0);
-        write_png(&dir.join("toolbar.png"), &toolbar(&ToolbarState { live: true, kb_open: false, pinned: true }).0);
+        write_png(&dir.join("toolbar.png"), &toolbar(&ToolbarState { live: true, kb_open: false, pinned: true, locked: true }).0);
         let mods = KbMods { shift: false, ctrl: false, alt: false };
         for (name, lcid, native) in [("ko_han", 0x12u16, true), ("ko_eng", 0x12, false), ("ja_on", 0x11, true), ("en", 0x09, false)] {
             let layout = crate::kbd::for_lcid(lcid);
@@ -1003,7 +1029,10 @@ mod tests {
         for code in ["ja", "en"] {
             crate::i18n::set(code);
             write_png(&dir.join(format!("menu_{code}.png")), &menu(&items, None, false).0);
-            write_png(&dir.join(format!("toolbar_{code}.png")), &toolbar(&ToolbarState { live: false, kb_open: true, pinned: false }).0);
+            write_png(
+                &dir.join(format!("toolbar_{code}.png")),
+                &toolbar(&ToolbarState { live: false, kb_open: true, pinned: false, locked: false }).0,
+            );
         }
         crate::i18n::set("ko");
         write_png(&dir.join("cursor.png"), &cursor());

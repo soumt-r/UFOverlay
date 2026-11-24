@@ -219,6 +219,8 @@ struct Panel {
     /// (hand, panel-in-controller transform) while carried on a controller.
     attached: Option<(usize, Mat34)>,
     live: bool,
+    /// View only: no mouse input, no grabbing, game input not blocked.
+    locked: bool,
     boost_until: Instant,
     last_submit: Instant,
     dirty: bool,
@@ -226,8 +228,8 @@ struct Panel {
     tb_on: bool,
     tb_until: Instant,
     buttons: Vec<ui::Button>,
-    /// (live, kb_open, attached) the toolbar image currently shows.
-    tb_drawn: Option<(bool, bool, bool)>,
+    /// (live, kb_open, attached, locked) the toolbar image currently shows.
+    tb_drawn: Option<(bool, bool, bool, bool)>,
 }
 
 impl Panel {
@@ -623,12 +625,13 @@ impl App {
         let kb_open = self.kb.open && self.kb.for_panel == Some(self.panels[i].id);
         let _ = fps;
         let pinned = self.panels[i].attached.is_some();
-        let (canvas, buttons) = ui::toolbar(&ui::ToolbarState { live: self.panels[i].live, kb_open, pinned });
+        let locked = self.panels[i].locked;
+        let (canvas, buttons) = ui::toolbar(&ui::ToolbarState { live: self.panels[i].live, kb_open, pinned, locked });
         let tb = self.panels[i].tb;
         self.set_image(tb, &canvas);
         let p = &mut self.panels[i];
         p.buttons = buttons;
-        p.tb_drawn = Some((p.live, kb_open, pinned));
+        p.tb_drawn = Some((p.live, kb_open, pinned, locked));
     }
 
     fn spawn(&mut self, src: Source, near: Option<Mat34>) {
@@ -685,6 +688,7 @@ impl App {
             held: None,
             attached: None,
             live: false,
+            locked: false,
             boost_until: now + Duration::from_secs(2),
             last_submit: now - Duration::from_secs(1),
             dirty: false,
@@ -753,6 +757,7 @@ impl App {
                     src,
                     width: p.width_m,
                     live: p.live,
+                    locked: p.locked,
                     world: mat_to_12(&world),
                     attached: p.attached.map(|(h, m)| (h, mat_to_12(&m))),
                 }
@@ -811,6 +816,7 @@ impl App {
             };
             if let Some(i) = self.spawn_at(src, mat_from_12(&sv.world), Some(sv.width)) {
                 self.panels[i].live = sv.live;
+                self.panels[i].locked = sv.locked;
                 self.panels[i].attached = sv.attached.map(|(h, m)| (h, mat_from_12(&m)));
                 self.apply_panel_tf(i);
             }
@@ -880,7 +886,7 @@ impl App {
             let p = &self.panels[i];
             let kb_here = self.kb.open && self.kb.for_panel == Some(p.id);
             let want = !self.all_hidden && (now < p.tb_until || p.held.is_some() || kb_here);
-            if want && (!p.tb_on || p.tb_drawn != Some((p.live, kb_here, p.attached.is_some()))) {
+            if want && (!p.tb_on || p.tb_drawn != Some((p.live, kb_here, p.attached.is_some(), p.locked))) {
                 self.redraw_toolbar(i);
             }
             let p = &self.panels[i];
@@ -987,6 +993,7 @@ impl App {
                         settings::Id::BootAnim => self.cfg.boot_anim,
                         settings::Id::Autostart => self.autostart,
                         settings::Id::BlockInput => self.cfg.block_input,
+                        settings::Id::WristLock => self.cfg.wrist_lock,
                         settings::Id::LeftHanded => self.cfg.left_handed,
                         settings::Id::Admin => self.cfg.admin,
                         _ => false,
@@ -1032,6 +1039,7 @@ impl App {
                 }
                 Some(Id::BootAnim) => self.cfg.boot_anim = !self.cfg.boot_anim,
                 Some(Id::BlockInput) => self.cfg.block_input = !self.cfg.block_input,
+                Some(Id::WristLock) => self.cfg.wrist_lock = !self.cfg.wrist_lock,
                 Some(Id::LeftHanded) => {
                     self.cfg.left_handed = !self.cfg.left_handed;
                     // The watch moves hands: forget the old spot, re-derive it.
@@ -1296,10 +1304,19 @@ impl App {
         best
     }
 
+    /// Pointing at the content of a view-only panel (its toolbar still works).
+    fn is_locked_content(&self, t: Target) -> bool {
+        match t {
+            Target::Panel(id, ..) => self.panel_idx(id).is_some_and(|i| self.panels[i].locked),
+            _ => false,
+        }
+    }
+
     fn input_tick(&mut self, dt: f32) {
         // A hand that is on UFOverlay keeps its buttons away from the game.
         let pri = |h: &Hand| {
-            if self.cfg.block_input && (h.target.is_some() || h.holding.is_some() || h.mouse_down.is_some()) {
+            let on_ufo = h.target.is_some_and(|t| !self.is_locked_content(t));
+            if self.cfg.block_input && (on_ufo || h.holding.is_some() || h.mouse_down.is_some()) {
                 Vr::PRIORITY_OVER_GAME
             } else {
                 0
@@ -1347,6 +1364,9 @@ impl App {
             Target::Panel(id, ..) | Target::Toolbar(id, ..) => {
                 let other = 1 - h;
                 let Some(i) = self.panel_idx(id) else { return };
+                if self.panels[i].locked {
+                    return;
+                }
                 if self.hands[other].holding == Some(Held::Panel(id)) {
                     // Second hand on a held panel → two-hand zoom.
                     if let (Some(a), Some(b)) = (self.hands[0].raw, self.hands[1].raw) {
@@ -1367,6 +1387,9 @@ impl App {
                 self.vr.set_transform_device_relative(self.kb.handle, dev, &rel);
             }
             Target::Wrist => {
+                if self.cfg.wrist_lock {
+                    return;
+                }
                 let (Some(wh), Some(tf)) = (self.wrist, self.wrist_tf()) else { return };
                 let rel = inv.mul(&tf);
                 self.wrist_held = Some((h, rel));
@@ -1478,6 +1501,7 @@ impl App {
 
         // ---- pointing
         match target {
+            Some(Target::Panel(id, _, _)) if self.is_locked_content(Target::Panel(id, 0., 0.)) => {}
             Some(Target::Panel(id, u, v)) => {
                 let Some(i) = self.panel_idx(id) else { return };
                 let (w, ch) = (self.panels[i].cap.w as f32, self.panels[i].cap.h as f32);
@@ -1527,6 +1551,11 @@ impl App {
                 match hitb {
                     Some(ui::Action::Live) => {
                         self.panels[i].live = !self.panels[i].live;
+                        self.layout_dirty = true;
+                        self.redraw_toolbar(i);
+                    }
+                    Some(ui::Action::Lock) => {
+                        self.panels[i].locked = !self.panels[i].locked;
                         self.layout_dirty = true;
                         self.redraw_toolbar(i);
                     }
@@ -1667,7 +1696,8 @@ impl App {
     /// Ring cursor on whatever the hand points at (none while holding).
     fn update_cursor(&mut self, h: usize) {
         let hand = &self.hands[h];
-        let show = hand.holding.is_none() && hand.target.is_some() && hand.aim.is_some();
+        // No ring over a view-only panel: it isn't something you can click.
+        let show = hand.holding.is_none() && hand.target.is_some_and(|t| !self.is_locked_content(t)) && hand.aim.is_some();
         if !show {
             if hand.cursor_on {
                 self.vr.hide(hand.cursor);

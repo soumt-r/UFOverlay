@@ -20,6 +20,8 @@ pub struct Config {
     pub wrist: bool,
     pub wrist_width_m: f32,
     pub wrist_24h: bool,
+    /// Ignore grip on the watch, so it can't be moved by accident.
+    pub wrist_lock: bool,
     /// Wrist placement saved after you move it by hand (controller space).
     pub wrist_pose: Option<[f32; 12]>,
     /// UFO flies in and beams the watch onto your wrist at startup.
@@ -49,6 +51,7 @@ impl Default for Config {
             wrist: true,
             wrist_width_m: 0.085,
             wrist_24h: true,
+            wrist_lock: false,
             wrist_pose: None,
             boot_anim: true,
             block_input: true,
@@ -84,6 +87,7 @@ impl Config {
                 "wrist" => c.wrist = b(),
                 "wrist_width_m" => c.wrist_width_m = f().unwrap_or(c.wrist_width_m),
                 "wrist_24h" => c.wrist_24h = b(),
+                "wrist_lock" => c.wrist_lock = b(),
                 "boot_anim" => c.boot_anim = b(),
                 "block_input" => c.block_input = b(),
                 "smoothing" => c.smoothing = v.parse().unwrap_or(c.smoothing),
@@ -132,6 +136,7 @@ push_speed = {}          # m/s, stick up/down while holding a panel
 wrist = {}               # UFO watch on the back of the left hand (opens the menu)
 wrist_width_m = {}
 wrist_24h = {}
+wrist_lock = {}          # true: the watch can't be grabbed / moved
 boot_anim = {}           # UFO flies in and beams the watch on at startup
 block_input = {}         # hide trigger/grip/stick from the game while pointing at UFOverlay
 smoothing = {}           # pointer jitter filter: 0 off, 1 light, 2 strong
@@ -150,6 +155,7 @@ language = {}            # auto, or a pack code from i18n/lang (ko, ja, en, …)
             self.wrist,
             self.wrist_width_m,
             self.wrist_24h,
+            self.wrist_lock,
             self.boot_anim,
             self.block_input,
             self.smoothing,
