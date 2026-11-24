@@ -24,12 +24,14 @@ mod layout;
 mod math;
 mod png;
 mod settings;
+mod sound;
 mod sources;
 mod text;
 mod tinytoml;
 mod ui;
 mod vr;
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -65,6 +67,14 @@ const TICK_VISIBLE: Duration = Duration::from_millis(33);
 const TICK_IDLE: Duration = Duration::from_millis(50);
 /// Toolbar lingers this long after the pointer leaves its panel.
 const TOOLBAR_LINGER: Duration = Duration::from_millis(1500);
+/// Pulling the trigger tips the controller down a little; a click uses where
+/// the pointer was this long *before* the press.
+const PRESS_LOOKBACK: Duration = Duration::from_millis(70);
+/// First auto-repeat delay and repeat interval for held keyboard keys.
+const KEY_REPEAT_DELAY: Duration = Duration::from_millis(450);
+const KEY_REPEAT_EVERY: Duration = Duration::from_millis(45);
+/// Key highlight "pressed" flash.
+const KEY_FLASH: Duration = Duration::from_millis(90);
 
 const MENU_W_M: f32 = 0.40;
 /// Wrist animation frame interval (only while you look at it).
@@ -149,8 +159,10 @@ fn wrist_default_local(hand: usize) -> Mat34 {
 /// tremors: the slower the aim moves, the more it is smoothed.
 fn smooth_pose(prev: &Mat34, cur: &Mat34, dt: f32, strength: u32) -> Mat34 {
     let ang_speed = prev.forward().dot(cur.forward()).clamp(-1.0, 1.0).acos() / dt.max(1e-3);
+    let lin_speed = (cur.pos() - prev.pos()).len() / dt.max(1e-3);
     let a_min = if strength >= 2 { 0.10 } else { 0.28 };
-    let a = (a_min + ang_speed / 2.5).clamp(a_min, 1.0);
+    // Turning (rad/s) or moving (m/s) quickly → follow; holding still → damp.
+    let a = (a_min + ang_speed / 2.5 + lin_speed / 0.8).clamp(a_min, 1.0);
     // Make the filter independent of tick rate (11 ms reference).
     let a = 1.0 - (1.0 - a).powf(dt / 0.011);
     let lerp = |p: V3, c: V3| p + (c - p) * a;
@@ -216,6 +228,8 @@ struct Panel {
     world: Mat34,
     /// (hand, panel-in-controller transform) while grabbed.
     held: Option<(usize, Mat34)>,
+    /// Filtered world pose while grabbed (jitter smoothing on).
+    held_smooth: Option<Mat34>,
     /// (hand, panel-in-controller transform) while carried on a controller.
     attached: Option<(usize, Mat34)>,
     live: bool,
@@ -272,8 +286,19 @@ struct Hand {
     cursor: Handle,
     cursor_on: bool,
     cursor_w: f32,
-    /// Hold the OS cursor still right after a click so jitter can't drag.
-    freeze_until: Instant,
+    /// Recent targets (~250 ms), to click where the pointer was before the
+    /// trigger pull tipped it.
+    hist: VecDeque<(Instant, Option<Target>)>,
+    /// Mouse button held: aim at the press, and whether it became a drag.
+    press: Option<Press>,
+    /// Keyboard key held for auto-repeat: (key index, next repeat).
+    repeat: Option<(usize, Instant)>,
+}
+
+/// A mouse press that only turns into a drag once the aim really moves.
+struct Press {
+    fwd: V3,
+    dragging: bool,
 }
 
 struct Zoom {
@@ -307,6 +332,13 @@ struct Keyboard {
     /// IME of the focused window (language + 한/영, あ/A), polled while open.
     ime: ime::ImeState,
     ime_check_at: Instant,
+    /// Highlight overlay over the hovered key.
+    hl: Handle,
+    hl_on: bool,
+    /// (key index, pressed) currently drawn on the highlight.
+    hl_drawn: Option<(usize, bool)>,
+    hl_flash_until: Instant,
+    held_smooth: Option<Mat34>,
 }
 
 struct App {
@@ -416,7 +448,9 @@ impl App {
                 cursor,
                 cursor_on: false,
                 cursor_w: 0.015,
-                freeze_until: Instant::now(),
+                hist: VecDeque::new(),
+                press: None,
+                repeat: None,
             })
         };
         let hands = [mk_hand(LEFT)?, mk_hand(RIGHT)?];
@@ -430,6 +464,8 @@ impl App {
         vr.set_sort_order(settings_handle, 15);
 
         let kb_handle = vr.create_overlay("ufo.keyboard", "UFO keyboard")?;
+        let kb_hl = vr.create_overlay("ufo.keyboard.key", "UFO key highlight")?;
+        vr.set_sort_order(kb_hl, 17);
         vr.set_width(kb_handle, KB_W_M);
         vr.set_sort_order(kb_handle, 16);
 
@@ -475,6 +511,11 @@ impl App {
                 for_panel: None,
                 ime: ime::ImeState { lcid: 0x12, native: false },
                 ime_check_at: now,
+                hl: kb_hl,
+                hl_on: false,
+                hl_drawn: None,
+                hl_flash_until: now,
+                held_smooth: None,
             },
             settings: settings_handle,
             settings_open: false,
@@ -548,7 +589,7 @@ impl App {
 
     fn panel_tf(&self, p: &Panel) -> Mat34 {
         if p.held.is_some() {
-            return self.held_tf(p.held, p.world);
+            return p.held_smooth.unwrap_or_else(|| self.held_tf(p.held, p.world));
         }
         self.held_tf(p.attached, p.world)
     }
@@ -563,7 +604,33 @@ impl App {
     }
 
     fn kb_tf(&self) -> Mat34 {
+        if self.kb.held.is_some() {
+            if let Some(s) = self.kb.held_smooth {
+                return s;
+            }
+        }
         self.held_tf(self.kb.held, self.kb.tf)
+    }
+
+    /// Short, firm buzz (key presses, clicks).
+    fn haptic_tap(&self, h: usize, secs: f32, freq: f32, amp: f32) {
+        self.vr.haptic(self.act.haptic, self.hands[h].src, secs, freq, amp);
+    }
+
+    /// Where the pointer was just before the trigger pull, if it was still on
+    /// the same thing; otherwise where it is now.
+    fn press_target(&self, h: usize, now_t: Option<Target>) -> Option<Target> {
+        let cutoff = Instant::now() - PRESS_LOOKBACK;
+        let before = self.hands[h].hist.iter().rev().find(|(t, _)| *t <= cutoff).and_then(|(_, t)| *t);
+        match (before, now_t) {
+            (Some(b), Some(n)) if b.same_object(&n) => Some(b),
+            _ => now_t,
+        }
+    }
+
+    /// How far (degrees) the aim may wander after a press before it counts as a drag.
+    fn drag_threshold_deg(&self) -> f32 {
+        [0.7, 1.6, 2.6][self.cfg.smoothing.min(2) as usize]
     }
 
     fn wrist_tf(&self) -> Option<Mat34> {
@@ -606,6 +673,11 @@ impl App {
         let p = &self.panels[i];
         let off = p.tb_offset();
         self.vr.set_width(p.tb, p.tb_w());
+        if let (Some(_), Some(s)) = (p.held, p.held_smooth) {
+            self.vr.set_transform_absolute(p.handle, &s);
+            self.vr.set_transform_absolute(p.tb, &s.mul(&off));
+            return;
+        }
         match p.held.or(p.attached) {
             Some((h, rel)) => {
                 let dev = self.hands[h].dev;
@@ -686,6 +758,7 @@ impl App {
             width_m,
             world,
             held: None,
+            held_smooth: None,
             attached: None,
             live: false,
             locked: false,
@@ -994,6 +1067,7 @@ impl App {
                         settings::Id::Autostart => self.autostart,
                         settings::Id::BlockInput => self.cfg.block_input,
                         settings::Id::WristLock => self.cfg.wrist_lock,
+                        settings::Id::KeySound => self.cfg.key_sound,
                         settings::Id::LeftHanded => self.cfg.left_handed,
                         settings::Id::Admin => self.cfg.admin,
                         _ => false,
@@ -1040,6 +1114,12 @@ impl App {
                 Some(Id::BootAnim) => self.cfg.boot_anim = !self.cfg.boot_anim,
                 Some(Id::BlockInput) => self.cfg.block_input = !self.cfg.block_input,
                 Some(Id::WristLock) => self.cfg.wrist_lock = !self.cfg.wrist_lock,
+                Some(Id::KeySound) => {
+                    self.cfg.key_sound = !self.cfg.key_sound;
+                    if self.cfg.key_sound {
+                        sound::click(); // preview
+                    }
+                }
                 Some(Id::LeftHanded) => {
                     self.cfg.left_handed = !self.cfg.left_handed;
                     // The watch moves hands: forget the old spot, re-derive it.
@@ -1186,9 +1266,24 @@ impl App {
         KB_W_M * ui::KB_H as f32 / ui::KB_W as f32
     }
 
-    fn press_key(&mut self, u: f32, v: f32) -> bool {
+    fn key_index_at(&self, u: f32, v: f32) -> Option<usize> {
         let (px, py) = (u * ui::KB_W as f32, v * ui::KB_H as f32);
-        let Some(kind) = ui::key_at(&self.kb.keys, px, py).map(|k| k.def.kind) else { return false };
+        let k = ui::key_at(&self.kb.keys, px, py)?;
+        self.kb.keys.iter().position(|x| std::ptr::eq(x, k))
+    }
+
+    /// Press a key with all the feedback: buzz, click sound, highlight flash.
+    fn press_key_index(&mut self, k: usize, hand: usize) {
+        self.haptic_tap(hand, 0.018, 230.0, 0.5);
+        if self.cfg.key_sound {
+            sound::click();
+        }
+        self.kb.hl_flash_until = Instant::now() + KEY_FLASH;
+        let kind = self.kb.keys[k].def.kind;
+        self.press_kind(kind);
+    }
+
+    fn press_kind(&mut self, kind: ui::KeyKind) -> bool {
         let m = &mut self.kb.mods;
         match kind {
             ui::KeyKind::Vk(vk, ext) => {
@@ -1350,7 +1445,9 @@ impl App {
         for h in 0..2 {
             self.hand_tick(h, dt);
         }
-        self.zoom_tick();
+        self.smooth_held(dt);
+        self.zoom_tick(dt);
+        self.update_key_highlight();
         self.poll_ime();
         self.update_toolbars();
         self.update_wrist_visibility();
@@ -1374,17 +1471,24 @@ impl App {
                         self.zoom = Some(Zoom { panel: id, hand: h, d0, w0: self.panels[i].width_m });
                     }
                 } else {
-                    let rel = inv.mul(&self.panel_tf(&self.panels[i]));
+                    let tf = self.panel_tf(&self.panels[i]);
+                    let rel = inv.mul(&tf);
                     self.panels[i].held = Some((h, rel));
+                    self.panels[i].held_smooth = (self.cfg.smoothing > 0).then_some(tf);
                     self.hands[h].holding = Some(Held::Panel(id));
                     self.apply_panel_tf(i);
                 }
             }
             Target::Keyboard(..) => {
-                let rel = inv.mul(&self.kb_tf());
+                let tf = self.kb_tf();
+                let rel = inv.mul(&tf);
                 self.kb.held = Some((h, rel));
                 self.hands[h].holding = Some(Held::Keyboard);
-                self.vr.set_transform_device_relative(self.kb.handle, dev, &rel);
+                if self.cfg.smoothing > 0 {
+                    self.kb.held_smooth = Some(tf);
+                } else {
+                    self.vr.set_transform_device_relative(self.kb.handle, dev, &rel);
+                }
             }
             Target::Wrist => {
                 if self.cfg.wrist_lock {
@@ -1415,6 +1519,7 @@ impl App {
                     let tf = self.panel_tf(&self.panels[i]);
                     self.panels[i].world = tf;
                     self.panels[i].held = None;
+                    self.panels[i].held_smooth = None;
                     if let Some((ah, _)) = self.panels[i].attached {
                         if let Some(raw) = self.hands[ah].raw {
                             self.panels[i].attached = Some((ah, raw.inv_rigid().mul(&tf)));
@@ -1426,6 +1531,7 @@ impl App {
             Held::Keyboard => {
                 self.kb.tf = self.kb_tf();
                 self.kb.held = None;
+                self.kb.held_smooth = None;
                 self.vr.set_transform_absolute(self.kb.handle, &self.kb.tf);
             }
             Held::Wrist => {
@@ -1449,6 +1555,17 @@ impl App {
         let prev = self.hands[h].target;
         let target = hit.map(|t| t.0);
         self.hands[h].target = target;
+        {
+            let now = Instant::now();
+            let hist = &mut self.hands[h].hist;
+            hist.push_back((now, target));
+            while hist.front().is_some_and(|(t, _)| now.duration_since(*t) > Duration::from_millis(250)) {
+                hist.pop_front();
+            }
+            if !self.hands[h].trig.0 {
+                self.hands[h].repeat = None;
+            }
+        }
         self.hands[h].dist = hit.map_or(0., |t| t.1);
         if let Some(t) = target {
             if prev.is_none_or(|p| !p.same_object(&t)) {
@@ -1514,8 +1631,20 @@ impl App {
                         self.mouse_hand = Some(h);
                     }
                     if self.mouse_hand == Some(h) {
-                        let frozen = now < self.hands[h].freeze_until;
-                        if !frozen && ((sx - self.last_mouse.0).abs() >= 0.5 || (sy - self.last_mouse.1).abs() >= 0.5) {
+                        // While a button is held the cursor stays put until the
+                        // aim really moves — then it's a drag.
+                        let aim_fwd = self.hands[h].aim.map(|a| a.forward());
+                        let thr = self.drag_threshold_deg();
+                        let may_move = match (&mut self.hands[h].press, aim_fwd) {
+                            (Some(p), Some(f)) => {
+                                if !p.dragging && p.fwd.dot(f).clamp(-1.0, 1.0).acos().to_degrees() > thr {
+                                    p.dragging = true;
+                                }
+                                p.dragging
+                            }
+                            _ => true,
+                        };
+                        if may_move && ((sx - self.last_mouse.0).abs() >= 0.5 || (sy - self.last_mouse.1).abs() >= 0.5) {
                             input::move_to(sx, sy);
                             self.last_mouse = (sx, sy);
                         }
@@ -1523,14 +1652,19 @@ impl App {
                             if let Source::Window { hwnd, .. } = self.panels[i].src {
                                 input::focus_window(hwnd);
                             }
+                            // Click where the pointer was before the trigger pull.
+                            let (cx, cy) = match self.press_target(h, target) {
+                                Some(Target::Panel(pid, pu, pv)) if pid == id => {
+                                    (r.left as f32 + pu * (r.right - r.left) as f32, r.top as f32 + pv * (r.bottom - r.top) as f32)
+                                }
+                                _ => (sx, sy),
+                            };
                             let right = r_down && !trig_down;
-                            input::button(sx, sy, right, true);
-                            self.last_mouse = (sx, sy);
+                            input::button(cx, cy, right, true);
+                            self.last_mouse = (cx, cy);
                             self.hands[h].mouse_down = Some(right);
-                            if self.cfg.smoothing > 0 {
-                                self.hands[h].freeze_until = now + Duration::from_millis(if self.cfg.smoothing >= 2 { 220 } else { 140 });
-                            }
-                            self.haptic(h, 0.3);
+                            self.hands[h].press = aim_fwd.map(|fwd| Press { fwd, dragging: false });
+                            self.haptic_tap(h, 0.016, 200.0, 0.35);
                         }
                         let stick_y = self.hands[h].stick.1;
                         if stick_y.abs() > 0.2 {
@@ -1589,9 +1723,23 @@ impl App {
                     None => {}
                 }
             }
-            Some(Target::Keyboard(u, v)) if trig_down => {
-                if self.press_key(u, v) {
-                    self.haptic(h, 0.25);
+            Some(Target::Keyboard(u, v)) => {
+                if trig_down {
+                    let (pu, pv) = match self.press_target(h, target) {
+                        Some(Target::Keyboard(pu, pv)) => (pu, pv),
+                        _ => (u, v),
+                    };
+                    if let Some(k) = self.key_index_at(pu, pv) {
+                        let repeatable = matches!(self.kb.keys[k].def.kind, ui::KeyKind::Vk(..));
+                        self.press_key_index(k, h);
+                        self.hands[h].repeat = repeatable.then_some((k, now + KEY_REPEAT_DELAY));
+                    }
+                } else if let Some((k, next)) = self.hands[h].repeat {
+                    // Held key: repeat while the pointer stays on it.
+                    if now >= next && self.key_index_at(u, v) == Some(k) {
+                        self.press_key_index(k, h);
+                        self.hands[h].repeat = Some((k, now + KEY_REPEAT_EVERY));
+                    }
                 }
             }
             Some(Target::Menu(u, v)) => {
@@ -1676,16 +1824,81 @@ impl App {
             if (right && r_up) || (!right && trig_up) {
                 input::button(self.last_mouse.0, self.last_mouse.1, right, false);
                 self.hands[h].mouse_down = None;
+                self.hands[h].press = None;
             }
         }
         self.update_cursor(h);
     }
 
-    fn zoom_tick(&mut self) {
+    /// Held panels / keyboard follow the hand through the jitter filter.
+    fn smooth_held(&mut self, dt: f32) {
+        if self.cfg.smoothing == 0 {
+            return;
+        }
+        for i in 0..self.panels.len() {
+            let p = &self.panels[i];
+            let (Some((h, rel)), Some(prev)) = (p.held, p.held_smooth) else { continue };
+            let Some(raw) = self.hands[h].raw else { continue };
+            let s = smooth_pose(&prev, &raw.mul(&rel), dt, self.cfg.smoothing);
+            let off = p.tb_offset();
+            self.vr.set_transform_absolute(p.handle, &s);
+            self.vr.set_transform_absolute(p.tb, &s.mul(&off));
+            self.panels[i].held_smooth = Some(s);
+        }
+        if let (Some((h, rel)), Some(prev)) = (self.kb.held, self.kb.held_smooth) {
+            if let Some(raw) = self.hands[h].raw {
+                let s = smooth_pose(&prev, &raw.mul(&rel), dt, self.cfg.smoothing);
+                self.vr.set_transform_absolute(self.kb.handle, &s);
+                self.kb.held_smooth = Some(s);
+            }
+        }
+    }
+
+    /// Mint frame over the key under the pointer; flashes when pressed.
+    fn update_key_highlight(&mut self) {
+        let key = if self.kb.open && self.kb.held.is_none() {
+            self.hands.iter().find_map(|h| match h.target {
+                Some(Target::Keyboard(u, v)) => self.key_index_at(u, v),
+                _ => None,
+            })
+        } else {
+            None
+        };
+        let Some(k) = key else {
+            if self.kb.hl_on {
+                self.vr.hide(self.kb.hl);
+                self.kb.hl_on = false;
+                self.kb.hl_drawn = None;
+            }
+            return;
+        };
+        let pressed = Instant::now() < self.kb.hl_flash_until;
+        let (x, y, w, hgt) = ui::key_rect(&self.kb.keys[k]);
+        let scale = KB_W_M / ui::KB_W as f32;
+        if self.kb.hl_drawn != Some((k, pressed)) {
+            let c = ui::key_highlight(w as u32, hgt as u32, pressed);
+            self.set_image(self.kb.hl, &c);
+            // Pressed keys "sink" a little.
+            self.vr.set_width(self.kb.hl, w * scale * if pressed { 0.93 } else { 1.0 });
+            self.kb.hl_drawn = Some((k, pressed));
+        }
+        let (cx, cy) = (x + w / 2.0, y + hgt / 2.0);
+        let local = Mat34::pitch_translate(0.0, [(cx - ui::KB_W as f32 / 2.0) * scale, (ui::KB_H as f32 / 2.0 - cy) * scale, 0.002]);
+        self.vr.set_transform_absolute(self.kb.hl, &self.kb_tf().mul(&local));
+        if !self.kb.hl_on {
+            self.vr.show(self.kb.hl);
+            self.kb.hl_on = true;
+        }
+    }
+
+    fn zoom_tick(&mut self, dt: f32) {
         let Some(z) = &self.zoom else { return };
         let (Some(a), Some(b)) = (self.hands[0].raw, self.hands[1].raw) else { return };
         let Some(i) = self.panel_idx(z.panel) else { return };
-        let w = (z.w0 * (a.pos() - b.pos()).len() / z.d0).clamp(0.1, 8.0);
+        let target = (z.w0 * (a.pos() - b.pos()).len() / z.d0).clamp(0.1, 8.0);
+        // Ease toward the two-hand width so hand tremor doesn't wobble the size.
+        let k = if self.cfg.smoothing > 0 { 1.0 - (1.0 - 0.3f32).powf(dt / 0.011) } else { 1.0 };
+        let w = self.panels[i].width_m + (target - self.panels[i].width_m) * k;
         if (w - self.panels[i].width_m).abs() > 0.002 {
             self.panels[i].width_m = w;
             self.vr.set_width(self.panels[i].handle, w);
@@ -2135,6 +2348,7 @@ impl Drop for App {
         }
         self.vr.destroy_overlay(self.menu);
         self.vr.destroy_overlay(self.kb.handle);
+        self.vr.destroy_overlay(self.kb.hl);
         self.vr.destroy_overlay(self.settings);
         if let Some(b) = &self.boot {
             self.vr.destroy_overlay(b.handle);
@@ -2358,6 +2572,18 @@ mod tests {
         assert!(moved > 15.0, "flick only moved {moved}°");
         // Result stays a proper rotation.
         assert!((big.col(0).dot(big.col(1))).abs() < 1e-4 && (big.col(2).len() - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn held_panel_smoothing_damps_jitter_but_follows_real_moves() {
+        let at = |x: f32| Mat34::pitch_translate(0.0, [x, 1.4, -1.0]);
+        let prev = at(0.0);
+        // 1 mm of hand tremor in one 11 ms tick → mostly ignored.
+        let jitter = smooth_pose(&prev, &at(0.001), 0.011, 1).pos().0;
+        assert!(jitter < 0.0005, "jitter moved {jitter}");
+        // A deliberate 5 cm move in one tick (≈4.5 m/s) → followed almost fully.
+        let moved = smooth_pose(&prev, &at(0.05), 0.011, 1).pos().0;
+        assert!(moved > 0.04, "move only reached {moved}");
     }
 
     #[test]

@@ -35,6 +35,7 @@ scroll_speed = "Scroll speed"
 push_speed = "Push / pull speed"    # stick while holding a panel
 smoothing = "Jitter smoothing"
 block_input = "Block game input while pointing"
+key_sound = "Keyboard sound"                 # soft click on VR keyboard keys
 left_handed = "Left-handed"
 watch_size = "Watch size"
 clock_24h = "24-hour clock"

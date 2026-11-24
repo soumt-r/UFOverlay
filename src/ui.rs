@@ -748,6 +748,31 @@ pub fn key_at(keys: &[Key], px: f32, py: f32) -> Option<&Key> {
     keys.iter().find(|k| ux >= k.x && ux < k.x + k.def.width && uy >= k.y && uy < k.y + 1.0)
 }
 
+/// Geometry of a key on the keyboard canvas: (x, y, w, h) in pixels.
+pub fn key_rect(k: &Key) -> (f32, f32, f32, f32) {
+    let u = KB_UNIT as f32;
+    (KB_PAD as f32 + k.x * u + 4.0, KB_PAD as f32 + k.y * u + 4.0, k.def.width * u - 8.0, u - 8.0)
+}
+
+/// Floating highlight laid over the hovered key: a mint outline, filled
+/// brighter while the key is being pressed.
+pub fn key_highlight(w: u32, h: u32, pressed: bool) -> Canvas {
+    let mut c = Canvas::new(w, h, [0, 0, 0, 0]);
+    let (wf, hf) = (w as f32, h as f32);
+    let fill = if pressed { [124, 242, 201, 110] } else { [124, 242, 201, 34] };
+    c.round_rect(0.0, 0.0, wf, hf, 16.0, fill);
+    // 3 px mint outline: |rounded-box distance| < thickness.
+    let (r, t) = (16.0f32, 3.0f32);
+    let (cx, cy, hx, hy) = (wf / 2.0, hf / 2.0, wf / 2.0 - r, hf / 2.0 - r);
+    c.fill_sdf(0.0, 0.0, wf, hf, MINT, |px, py| {
+        let qx = (px - cx).abs() - hx;
+        let qy = (py - cy).abs() - hy;
+        let d = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - r;
+        (d + t / 2.0).abs() - t / 2.0
+    });
+    c
+}
+
 pub struct KbMods {
     pub shift: bool,
     pub ctrl: bool,
@@ -1036,6 +1061,8 @@ mod tests {
         }
         crate::i18n::set("ko");
         write_png(&dir.join("cursor.png"), &cursor());
+        write_png(&dir.join("key_hl.png"), &key_highlight(152, 72, false));
+        write_png(&dir.join("key_hl_pressed.png"), &key_highlight(152, 72, true));
         let rows = vec![
             RowView { section: "화면", label: "가만히 볼 때", ctrl: Ctrl::Num("15 fps".into(), true, true) },
             RowView { section: "화면", label: "가리킬 때", ctrl: Ctrl::Num("144 fps".into(), true, false) },

@@ -28,6 +28,8 @@ pub struct Config {
     pub boot_anim: bool,
     /// Keep the game from seeing trigger/grip/stick while you point at UFOverlay.
     pub block_input: bool,
+    /// Soft click when a VR keyboard key is pressed.
+    pub key_sound: bool,
     /// Pointer jitter filter: 0 off, 1 light, 2 strong.
     pub smoothing: u32,
     /// Watch on the right hand, pointer on the left.
@@ -56,6 +58,7 @@ impl Default for Config {
             boot_anim: true,
             block_input: true,
             smoothing: 1,
+            key_sound: true,
             left_handed: false,
             admin: false,
             language: "auto".into(),
@@ -91,6 +94,7 @@ impl Config {
                 "boot_anim" => c.boot_anim = b(),
                 "block_input" => c.block_input = b(),
                 "smoothing" => c.smoothing = v.parse().unwrap_or(c.smoothing),
+                "key_sound" => c.key_sound = b(),
                 "left_handed" => c.left_handed = b(),
                 "admin" => c.admin = b(),
                 "language" => c.language = if v.is_empty() { "auto".into() } else { v.to_string() },
@@ -139,7 +143,8 @@ wrist_24h = {}
 wrist_lock = {}          # true: the watch can't be grabbed / moved
 boot_anim = {}           # UFO flies in and beams the watch on at startup
 block_input = {}         # hide trigger/grip/stick from the game while pointing at UFOverlay
-smoothing = {}           # pointer jitter filter: 0 off, 1 light, 2 strong
+smoothing = {}           # pointer / grab jitter filter: 0 off, 1 light, 2 strong
+key_sound = {}           # soft click on VR keyboard key presses
 left_handed = {}         # watch on the right hand, pointer on the left
 admin = {}               # relaunch elevated so admin windows accept clicks
 language = {}            # auto, or a pack code from i18n/lang (ko, ja, en, …)
@@ -159,6 +164,7 @@ language = {}            # auto, or a pack code from i18n/lang (ko, ja, en, …)
             self.boot_anim,
             self.block_input,
             self.smoothing,
+            self.key_sound,
             self.left_handed,
             self.admin,
             self.language,

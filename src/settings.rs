@@ -23,6 +23,7 @@ pub enum Id {
     Admin,
     Language,
     WristLock,
+    KeySound,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,6 +56,7 @@ pub fn items() -> Vec<Item> {
         it(Push, "settings.controls", "settings.push_speed", Num { min: 0.5, max: 4.0, step: 0.5 }),
         it(Smoothing, "settings.controls", "settings.smoothing", Num { min: 0.0, max: 2.0, step: 1.0 }),
         it(BlockInput, "settings.controls", "settings.block_input", Toggle),
+        it(KeySound, "settings.controls", "settings.key_sound", Toggle),
         it(LeftHanded, "settings.controls", "settings.left_handed", Toggle),
         it(WristSize, "settings.wrist", "settings.watch_size", Num { min: 0.05, max: 0.15, step: 0.01 }),
         it(Wrist24h, "settings.wrist", "settings.clock_24h", Toggle),
