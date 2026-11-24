@@ -1,0 +1,27 @@
+{
+  "controller_type": "knuckles",
+  "description": "UFOverlay default",
+  "name": "UFOverlay default",
+  "bindings": {
+    "/actions/main": {
+      "poses": [
+        { "output": "/actions/main/in/aim", "path": "/user/hand/left/pose/tip" },
+        { "output": "/actions/main/in/aim", "path": "/user/hand/right/pose/tip" }
+      ],
+      "haptics": [
+        { "output": "/actions/main/out/haptic", "path": "/user/hand/left/output/haptic" },
+        { "output": "/actions/main/out/haptic", "path": "/user/hand/right/output/haptic" }
+      ],
+      "sources": [
+        { "mode": "button", "path": "/user/hand/left/input/trigger", "inputs": { "click": { "output": "/actions/main/in/click" } } },
+        { "mode": "button", "path": "/user/hand/right/input/trigger", "inputs": { "click": { "output": "/actions/main/in/click" } } },
+        { "mode": "button", "path": "/user/hand/left/input/grip", "inputs": { "click": { "output": "/actions/main/in/grab" } } },
+        { "mode": "button", "path": "/user/hand/right/input/grip", "inputs": { "click": { "output": "/actions/main/in/grab" } } },
+        { "mode": "button", "path": "/user/hand/left/input/b", "inputs": { "click": { "output": "/actions/main/in/rclick" } } },
+        { "mode": "button", "path": "/user/hand/right/input/b", "inputs": { "click": { "output": "/actions/main/in/rclick" } } },
+        { "mode": "joystick", "path": "/user/hand/left/input/thumbstick", "inputs": { "position": { "output": "/actions/main/in/stick" } } },
+        { "mode": "joystick", "path": "/user/hand/right/input/thumbstick", "inputs": { "position": { "output": "/actions/main/in/stick" } } }
+      ]
+    }
+  }
+}

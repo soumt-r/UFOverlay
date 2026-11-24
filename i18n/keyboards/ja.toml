@@ -1,0 +1,21 @@
+# UFOverlay keyboard layout — 日本語 (romaji input through the system IME).
+# Format: see i18n/README.md.
+
+name = "日本語"
+lcid = [0x11]
+font = "Yu Gothic UI"
+
+rows = [
+  "esc grave 1 2 3 4 5 6 7 8 9 0 minus equal backspace",
+  "tab:1.5 q w e r t y u i o p lbracket rbracket backslash:1.5",
+  "ime:1.75 a s d f g h j k l semicolon quote enter:2.25",
+  "shift:2.25 z x c v b n m comma period slash up delete:1.75",
+  "ctrl:1.5 alt:1.5 0x1D=無変換:1.25 space:4.5 0x1C=変換:1.25 left down right close:2",
+]
+
+[ime]
+label = "半/全"
+on = "あ"
+off = "A"
+fallback_vk = 0x19
+legends_big_when_on = false

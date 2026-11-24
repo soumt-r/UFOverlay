@@ -1,0 +1,27 @@
+{
+  "default_bindings": [
+    { "controller_type": "oculus_touch", "binding_url": "bindings_oculus_touch.json" },
+    { "controller_type": "knuckles", "binding_url": "bindings_knuckles.json" }
+  ],
+  "actions": [
+    { "name": "/actions/main/in/aim", "type": "pose" },
+    { "name": "/actions/main/in/click", "type": "boolean" },
+    { "name": "/actions/main/in/grab", "type": "boolean" },
+    { "name": "/actions/main/in/rclick", "type": "boolean" },
+    { "name": "/actions/main/in/stick", "type": "vector2" },
+    { "name": "/actions/main/out/haptic", "type": "vibration" }
+  ],
+  "action_sets": [ { "name": "/actions/main", "usage": "leftright" } ],
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "/actions/main": "UFOverlay",
+      "/actions/main/in/aim": "Laser aim",
+      "/actions/main/in/click": "Click (left mouse)",
+      "/actions/main/in/grab": "Grab panel",
+      "/actions/main/in/rclick": "Right click",
+      "/actions/main/in/stick": "Scroll / push-pull",
+      "/actions/main/out/haptic": "Haptics"
+    }
+  ]
+}

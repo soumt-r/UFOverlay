@@ -1,0 +1,55 @@
+# UFOverlay language pack — 한국어. Keys and notes: see en.toml.
+
+[meta]
+name = "한국어"
+font = "Malgun Gothic"
+lcid = [0x12]
+
+[menu]
+prompt = "무엇을 띄울까요?"
+monitor = "모니터"
+monitors = "모니터"
+windows = "창"
+refresh = "새로고침"
+gather = "모으기"
+hide_all = "다 숨기기"
+show_all = "다 보이기"
+
+[settings]
+title = "설정"
+display = "화면"
+controls = "조작"
+wrist = "손목"
+startup = "시작"
+language = "언어"
+auto = "자동"
+fps_idle = "가만히 볼 때"
+fps_pointing = "가리킬 때"
+boost = "부드러움 유지"
+opacity = "패널 불투명도"
+spawn_distance = "새 패널 거리"
+scroll_speed = "스크롤 속도"
+push_speed = "밀고 당기기 속도"
+smoothing = "손떨림 보정"
+block_input = "가리킬 때 게임 입력 막기"
+left_handed = "왼손잡이"
+watch_size = "시계 크기"
+clock_24h = "24시간제"
+boot_anim = "시작 애니메이션"
+watch_position = "시계 위치"
+reset = "처음대로"
+autostart = "SteamVR와 함께 켜기"
+admin = "관리자 권한 창도 조작"
+off = "끔"
+light = "약하게"
+strong = "강하게"
+seconds = "{v}초"
+
+[toolbar]
+video = "영상"
+keyboard = "키보드"
+pin = "손에"
+pinned = "붙음"
+
+[keyboard]
+close = "닫기"

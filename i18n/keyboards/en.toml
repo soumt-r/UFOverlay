@@ -1,0 +1,14 @@
+# UFOverlay keyboard layout — English (US QWERTY).
+# Used for any input language that has no layout of its own.
+# Format: see i18n/README.md.
+
+name = "English"
+lcid = [0x09]
+
+rows = [
+  "esc grave 1 2 3 4 5 6 7 8 9 0 minus equal backspace",
+  "tab:1.5 q w e r t y u i o p lbracket rbracket backslash:1.5",
+  "caps:1.75 a s d f g h j k l semicolon quote enter:2.25",
+  "shift:2.25 z x c v b n m comma period slash up delete:1.75",
+  "ctrl:1.5 alt:1.5 space:7 left down right close:2",
+]

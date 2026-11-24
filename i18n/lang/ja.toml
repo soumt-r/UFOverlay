@@ -1,0 +1,55 @@
+# UFOverlay language pack — 日本語. Keys and notes: see en.toml.
+
+[meta]
+name = "日本語"
+font = "Yu Gothic UI"
+lcid = [0x11]
+
+[menu]
+prompt = "何を表示しますか？"
+monitor = "モニター"
+monitors = "モニター"
+windows = "ウィンドウ"
+refresh = "更新"
+gather = "集める"
+hide_all = "すべて隠す"
+show_all = "すべて表示"
+
+[settings]
+title = "設定"
+display = "画面"
+controls = "操作"
+wrist = "手首"
+startup = "起動"
+language = "言語"
+auto = "自動"
+fps_idle = "見ているだけの時"
+fps_pointing = "指している時"
+boost = "なめらかさの維持"
+opacity = "パネルの不透明度"
+spawn_distance = "新しいパネルの距離"
+scroll_speed = "スクロール速度"
+push_speed = "押し引きの速度"
+smoothing = "手ぶれ補正"
+block_input = "指している間はゲーム入力を止める"
+left_handed = "左利き"
+watch_size = "時計の大きさ"
+clock_24h = "24時間表示"
+boot_anim = "起動アニメーション"
+watch_position = "時計の位置"
+reset = "元に戻す"
+autostart = "SteamVRと一緒に起動"
+admin = "管理者ウィンドウも操作"
+off = "オフ"
+light = "弱"
+strong = "強"
+seconds = "{v}秒"
+
+[toolbar]
+video = "動画"
+keyboard = "キー入力"
+pin = "手に"
+pinned = "固定中"
+
+[keyboard]
+close = "閉じる"

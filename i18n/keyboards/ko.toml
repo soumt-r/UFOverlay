@@ -1,0 +1,52 @@
+# UFOverlay keyboard layout — 한국어 (두벌식). Format: see i18n/README.md.
+# The layout's code is its file name; it is picked when the focused window's
+# input language is one of `lcid`.
+
+name = "한국어 (두벌식)"
+lcid = [0x12]
+font = "Malgun Gothic"      # for legends and custom labels
+
+# 5 rows, each 15 units wide. Token: name[:width] or 0xVK=Label[:width].
+rows = [
+  "esc grave 1 2 3 4 5 6 7 8 9 0 minus equal backspace",
+  "tab:1.5 q w e r t y u i o p lbracket rbracket backslash:1.5",
+  "ime:1.75 a s d f g h j k l semicolon quote enter:2.25",
+  "shift:2.25 z x c v b n m comma period slash up delete:1.75",
+  "ctrl:1.5 alt:1.5 space:7 left down right close:2",
+]
+
+[ime]
+label = "한/영"              # printed small on the IME key
+on = "한"                    # printed big while Hangul input is on
+off = "영"                   # … while it is off
+fallback_vk = 0x15           # sent if the IME can't be switched directly
+legends_big_when_on = true   # jamo big / Latin small while Hangul input is on
+
+# Second character(s) printed on a key: [normal, with Shift]
+[legends]
+q = ["ㅂ", "ㅃ"]
+w = ["ㅈ", "ㅉ"]
+e = ["ㄷ", "ㄸ"]
+r = ["ㄱ", "ㄲ"]
+t = ["ㅅ", "ㅆ"]
+y = ["ㅛ"]
+u = ["ㅕ"]
+i = ["ㅑ"]
+o = ["ㅐ", "ㅒ"]
+p = ["ㅔ", "ㅖ"]
+a = ["ㅁ"]
+s = ["ㄴ"]
+d = ["ㅇ"]
+f = ["ㄹ"]
+g = ["ㅎ"]
+h = ["ㅗ"]
+j = ["ㅓ"]
+k = ["ㅏ"]
+l = ["ㅣ"]
+z = ["ㅋ"]
+x = ["ㅌ"]
+c = ["ㅊ"]
+v = ["ㅍ"]
+b = ["ㅠ"]
+n = ["ㅜ"]
+m = ["ㅡ"]

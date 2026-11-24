@@ -1,0 +1,58 @@
+# UFOverlay language pack — English.
+# This is the reference pack: every other pack translates these keys, and a
+# key missing from a pack falls back to the text here.
+# The pack's code is its file name (en.toml → language = "en" in ufoverlay.ini).
+
+[meta]
+name = "English"          # shown in Settings → Language, in its own language
+font = "Segoe UI"         # Windows font that renders this script well
+lcid = [0x09]             # Windows UI language id(s); "auto" picks this pack
+
+[menu]
+prompt = "What should I show?"      # menu subtitle under "UFOverlay"
+monitor = "Monitor"                 # "Monitor 1 · 2560×1440"
+monitors = "Monitors"               # section header
+windows = "Windows"                 # section header (app windows)
+refresh = "Refresh"
+gather = "Gather"                   # bring all panels in front of you
+hide_all = "Hide all"
+show_all = "Show all"
+
+[settings]
+title = "Settings"
+display = "Display"                 # section headers
+controls = "Controls"
+wrist = "Wrist"
+startup = "Startup"
+language = "Language"
+auto = "Auto"                       # language: follow Windows
+fps_idle = "Idle refresh"           # panel fps when nobody points at it
+fps_pointing = "While pointing"     # panel fps while pointed at
+boost = "Stay smooth for"           # seconds at full fps after pointing
+opacity = "Panel opacity"
+spawn_distance = "New panel distance"
+scroll_speed = "Scroll speed"
+push_speed = "Push / pull speed"    # stick while holding a panel
+smoothing = "Jitter smoothing"
+block_input = "Block game input while pointing"
+left_handed = "Left-handed"
+watch_size = "Watch size"
+clock_24h = "24-hour clock"
+boot_anim = "Startup animation"
+watch_position = "Watch position"
+reset = "Reset"                     # button: watch back to its default spot
+autostart = "Start with SteamVR"
+admin = "Control admin windows"
+off = "Off"                         # smoothing levels
+light = "Light"
+strong = "Strong"
+seconds = "{v} s"                   # {v} is replaced by the number, e.g. "1.5 s"
+
+[toolbar]
+video = "Video"                     # keep refreshing at full speed
+keyboard = "Keyboard"
+pin = "Pin"                         # carry the panel on your other hand
+pinned = "Pinned"
+
+[keyboard]
+close = "Close"

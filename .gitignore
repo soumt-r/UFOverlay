@@ -1,0 +1,8 @@
+/target
+/dist
+
+# runtime files UFOverlay writes next to the exe (when run from the repo)
+*.log
+ufoverlay.ini
+layout.txt
+ufoverlay.vrmanifest

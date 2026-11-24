@@ -1,0 +1,53 @@
+[package]
+name = "ufoverlay"
+version = "0.4.0"
+edition = "2021"
+description = "UFOverlay (Ultra Fast Overlay): a tiny SteamVR desktop & window overlay that does nothing while you're not looking"
+license = "MIT"
+readme = "README.md"
+keywords = ["steamvr", "openvr", "overlay", "vr", "desktop"]
+categories = ["gui", "multimedia"]
+publish = false
+
+[dependencies.windows]
+version = "0.62"
+features = [
+    "Foundation",
+    "Graphics",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_Graphics_Dwm",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Input_Ime",
+    "Win32_Globalization",
+    "Win32_System_Registry",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[dev-dependencies]
+# Tests only: checks that every i18n/*.toml file is standard TOML and that our
+# tiny built-in reader (src/tinytoml.rs) reads it identically. Not in the exe.
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

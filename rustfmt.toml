@@ -1,0 +1,3 @@
+# The code favours long, flat lines over deep wrapping.
+max_width = 140
+use_small_heuristics = "Max"
