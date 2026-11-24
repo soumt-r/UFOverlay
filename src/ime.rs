@@ -72,6 +72,10 @@ pub fn toggle() -> bool {
     }
     if lcid == LANG_KOREAN {
         let Some(mode) = ask(ime, IMC_GETCONVERSIONMODE, 0) else { return false };
+        // Switching to 한글 on a closed IME context does nothing; open it first.
+        if mode & IME_CMODE_NATIVE == 0 && ask(ime, IMC_GETOPENSTATUS, 0) == Some(0) {
+            ask(ime, IMC_SETOPENSTATUS, 1);
+        }
         ask(ime, IMC_SETCONVERSIONMODE, (mode ^ IME_CMODE_NATIVE) as isize).is_some()
     } else {
         let Some(open) = ask(ime, IMC_GETOPENSTATUS, 0) else { return false };

@@ -73,6 +73,12 @@ pub fn focus_window(hwnd: HWND) {
     }
 }
 
+/// Hardware scan code for a virtual key. Some apps and IMEs look at the scan
+/// code rather than the VK, so we send both like a real keyboard does.
+fn scan(vk: VIRTUAL_KEY) -> u16 {
+    unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) as u16 }
+}
+
 /// Press one virtual key with optional modifiers (VK codes, so the Korean IME
 /// composes Hangul exactly like a physical keyboard).
 pub fn key_press(vk: u16, extended: bool, shift: bool, ctrl: bool, alt: bool) {
@@ -80,12 +86,13 @@ pub fn key_press(vk: u16, extended: bool, shift: bool, ctrl: bool, alt: bool) {
     let mut ev = Vec::with_capacity(8);
     let mods: Vec<VIRTUAL_KEY> = [(ctrl, VK_CONTROL), (alt, VK_MENU), (shift, VK_SHIFT)].iter().filter(|m| m.0).map(|m| m.1).collect();
     for &m in &mods {
-        ev.push(key(m, 0, KEYBD_EVENT_FLAGS(0)));
+        ev.push(key(m, scan(m), KEYBD_EVENT_FLAGS(0)));
     }
-    ev.push(key(VIRTUAL_KEY(vk), 0, ext));
-    ev.push(key(VIRTUAL_KEY(vk), 0, KEYBD_EVENT_FLAGS(ext.0 | KEYEVENTF_KEYUP.0)));
+    let v = VIRTUAL_KEY(vk);
+    ev.push(key(v, scan(v), ext));
+    ev.push(key(v, scan(v), KEYBD_EVENT_FLAGS(ext.0 | KEYEVENTF_KEYUP.0)));
     for &m in mods.iter().rev() {
-        ev.push(key(m, 0, KEYEVENTF_KEYUP));
+        ev.push(key(m, scan(m), KEYEVENTF_KEYUP));
     }
     send(&ev);
 }

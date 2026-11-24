@@ -469,6 +469,8 @@ impl App {
             [vr.create_overlay("ufo.keyboard.key.0", "UFO key highlight")?, vr.create_overlay("ufo.keyboard.key.1", "UFO key highlight")?];
         for hl in kb_hl {
             vr.set_sort_order(hl, 17);
+            // Fixed size: as wide as the keyboard, one row tall (see ui::key_highlight_strip).
+            vr.set_width(hl, KB_W_M);
         }
         vr.set_width(kb_handle, KB_W_M);
         vr.set_sort_order(kb_handle, 16);
@@ -1310,8 +1312,16 @@ impl App {
                 self.redraw_keyboard();
             }
             ui::KeyKind::Ime => {
-                if !ime::toggle() && self.kb.layout.ime_vk != 0 {
-                    // No IME window to talk to: send the layout's toggle key instead.
+                // Ask the IME directly, then check it really switched: some
+                // apps accept the request and ignore it. If nothing changed,
+                // press the layout's toggle key like a physical keyboard.
+                let before = ime::state();
+                let asked = ime::toggle();
+                let switched = asked && {
+                    std::thread::sleep(Duration::from_millis(25));
+                    ime::state().native != before.native
+                };
+                if !switched && self.kb.layout.ime_vk != 0 {
                     input::key_press(self.kb.layout.ime_vk, false, false, false, false);
                 }
                 // Re-read the mode right away so the labels flip.
@@ -1875,17 +1885,15 @@ impl App {
                 continue;
             };
             let pressed = Instant::now() < self.kb.hl_flash_until[hand];
-            let (x, y, w, hgt) = ui::key_rect(&self.kb.keys[k]);
-            let scale = KB_W_M / ui::KB_W as f32;
             if self.kb.hl_drawn[hand] != Some((k, pressed)) {
-                let c = ui::key_highlight(w as u32, hgt as u32, pressed);
+                let c = ui::key_highlight_strip(&self.kb.keys[k], pressed);
                 self.set_image(hl, &c);
-                // Pressed keys "sink" a little.
-                self.vr.set_width(hl, w * scale * if pressed { 0.93 } else { 1.0 });
                 self.kb.hl_drawn[hand] = Some((k, pressed));
             }
-            let (cx, cy) = (x + w / 2.0, y + hgt / 2.0);
-            let local = Mat34::pitch_translate(0.0, [(cx - ui::KB_W as f32 / 2.0) * scale, (ui::KB_H as f32 / 2.0 - cy) * scale, 0.002]);
+            // Strip centre = keyboard centre horizontally, the key's row vertically.
+            let scale = KB_W_M / ui::KB_W as f32;
+            let row_cy = ui::KB_PAD as f32 + self.kb.keys[k].y * ui::KB_UNIT as f32 + ui::KB_HL_H as f32 / 2.0;
+            let local = Mat34::pitch_translate(0.0, [0.0, (ui::KB_H as f32 / 2.0 - row_cy) * scale, 0.002]);
             self.vr.set_transform_absolute(hl, &self.kb_tf().mul(&local));
             if !self.kb.hl_on[hand] {
                 self.vr.show(hl);

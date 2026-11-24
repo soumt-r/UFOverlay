@@ -754,17 +754,24 @@ pub fn key_rect(k: &Key) -> (f32, f32, f32, f32) {
     (KB_PAD as f32 + k.x * u + 4.0, KB_PAD as f32 + k.y * u + 4.0, k.def.width * u - 8.0, u - 8.0)
 }
 
-/// Floating highlight laid over the hovered key: a mint outline, filled
-/// brighter while the key is being pressed.
-pub fn key_highlight(w: u32, h: u32, pressed: bool) -> Canvas {
-    let mut c = Canvas::new(w, h, [0, 0, 0, 0]);
-    let (wf, hf) = (w as f32, h as f32);
+/// Key highlight drawn on a fixed-size strip one key-row tall and as wide as
+/// the keyboard. The overlay's size never changes — only the picture and the
+/// row it sits on — so SteamVR can't briefly show a new width with the old
+/// image (which made the space bar highlight flash huge).
+pub const KB_HL_H: u32 = KB_UNIT;
+
+pub fn key_highlight_strip(k: &Key, pressed: bool) -> Canvas {
+    let mut c = Canvas::new(KB_W, KB_HL_H, [0, 0, 0, 0]);
+    let (x, _, w, h) = key_rect(k);
+    let y = 4.0;
+    // Pressed keys "sink": a slightly smaller, brighter frame.
+    let inset = if pressed { 3.0 } else { 0.0 };
+    let (x, y, w, h) = (x + inset, y + inset, w - inset * 2.0, h - inset * 2.0);
     let fill = if pressed { [124, 242, 201, 110] } else { [124, 242, 201, 34] };
-    c.round_rect(0.0, 0.0, wf, hf, 16.0, fill);
-    // 3 px mint outline: |rounded-box distance| < thickness.
+    c.round_rect(x, y, w, h, 16.0, fill);
     let (r, t) = (16.0f32, 3.0f32);
-    let (cx, cy, hx, hy) = (wf / 2.0, hf / 2.0, wf / 2.0 - r, hf / 2.0 - r);
-    c.fill_sdf(0.0, 0.0, wf, hf, MINT, |px, py| {
+    let (cx, cy, hx, hy) = (x + w / 2.0, y + h / 2.0, w / 2.0 - r, h / 2.0 - r);
+    c.fill_sdf(x - 1.0, y - 1.0, x + w + 1.0, y + h + 1.0, MINT, |px, py| {
         let qx = (px - cx).abs() - hx;
         let qy = (py - cy).abs() - hy;
         let d = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - r;
@@ -1061,8 +1068,12 @@ mod tests {
         }
         crate::i18n::set("ko");
         write_png(&dir.join("cursor.png"), &cursor());
-        write_png(&dir.join("key_hl.png"), &key_highlight(152, 72, false));
-        write_png(&dir.join("key_hl_pressed.png"), &key_highlight(152, 72, true));
+        {
+            let keys = keyboard_keys(crate::kbd::for_lcid(0x12));
+            let space = keys.iter().find(|k| k.def.kind == KeyKind::Vk(0x20, false)).unwrap();
+            write_png(&dir.join("key_hl_space.png"), &key_highlight_strip(space, false));
+            write_png(&dir.join("key_hl_space_pressed.png"), &key_highlight_strip(space, true));
+        }
         let rows = vec![
             RowView { section: "화면", label: "가만히 볼 때", ctrl: Ctrl::Num("15 fps".into(), true, true) },
             RowView { section: "화면", label: "가리킬 때", ctrl: Ctrl::Num("144 fps".into(), true, false) },
