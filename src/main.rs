@@ -333,11 +333,11 @@ struct Keyboard {
     ime: ime::ImeState,
     ime_check_at: Instant,
     /// Highlight overlay over the hovered key.
-    hl: Handle,
-    hl_on: bool,
+    hl: [Handle; 2],
+    hl_on: [bool; 2],
     /// (key index, pressed) currently drawn on the highlight.
-    hl_drawn: Option<(usize, bool)>,
-    hl_flash_until: Instant,
+    hl_drawn: [Option<(usize, bool)>; 2],
+    hl_flash_until: [Instant; 2],
     held_smooth: Option<Mat34>,
 }
 
@@ -464,8 +464,12 @@ impl App {
         vr.set_sort_order(settings_handle, 15);
 
         let kb_handle = vr.create_overlay("ufo.keyboard", "UFO keyboard")?;
-        let kb_hl = vr.create_overlay("ufo.keyboard.key", "UFO key highlight")?;
-        vr.set_sort_order(kb_hl, 17);
+        // One key highlight per hand, so two-handed typing shows both.
+        let kb_hl =
+            [vr.create_overlay("ufo.keyboard.key.0", "UFO key highlight")?, vr.create_overlay("ufo.keyboard.key.1", "UFO key highlight")?];
+        for hl in kb_hl {
+            vr.set_sort_order(hl, 17);
+        }
         vr.set_width(kb_handle, KB_W_M);
         vr.set_sort_order(kb_handle, 16);
 
@@ -512,9 +516,9 @@ impl App {
                 ime: ime::ImeState { lcid: 0x12, native: false },
                 ime_check_at: now,
                 hl: kb_hl,
-                hl_on: false,
-                hl_drawn: None,
-                hl_flash_until: now,
+                hl_on: [false; 2],
+                hl_drawn: [None; 2],
+                hl_flash_until: [now; 2],
                 held_smooth: None,
             },
             settings: settings_handle,
@@ -1278,7 +1282,7 @@ impl App {
         if self.cfg.key_sound {
             sound::click();
         }
-        self.kb.hl_flash_until = Instant::now() + KEY_FLASH;
+        self.kb.hl_flash_until[hand] = Instant::now() + KEY_FLASH;
         let kind = self.kb.keys[k].def.kind;
         self.press_kind(kind);
     }
@@ -1854,40 +1858,39 @@ impl App {
         }
     }
 
-    /// Mint frame over the key under the pointer; flashes when pressed.
+    /// Mint frame over the key under each hand's pointer; flashes when pressed.
     fn update_key_highlight(&mut self) {
-        let key = if self.kb.open && self.kb.held.is_none() {
-            self.hands.iter().find_map(|h| match h.target {
-                Some(Target::Keyboard(u, v)) => self.key_index_at(u, v),
+        for hand in 0..2 {
+            let key = match self.hands[hand].target {
+                Some(Target::Keyboard(u, v)) if self.kb.open && self.kb.held.is_none() => self.key_index_at(u, v),
                 _ => None,
-            })
-        } else {
-            None
-        };
-        let Some(k) = key else {
-            if self.kb.hl_on {
-                self.vr.hide(self.kb.hl);
-                self.kb.hl_on = false;
-                self.kb.hl_drawn = None;
+            };
+            let hl = self.kb.hl[hand];
+            let Some(k) = key else {
+                if self.kb.hl_on[hand] {
+                    self.vr.hide(hl);
+                    self.kb.hl_on[hand] = false;
+                    self.kb.hl_drawn[hand] = None;
+                }
+                continue;
+            };
+            let pressed = Instant::now() < self.kb.hl_flash_until[hand];
+            let (x, y, w, hgt) = ui::key_rect(&self.kb.keys[k]);
+            let scale = KB_W_M / ui::KB_W as f32;
+            if self.kb.hl_drawn[hand] != Some((k, pressed)) {
+                let c = ui::key_highlight(w as u32, hgt as u32, pressed);
+                self.set_image(hl, &c);
+                // Pressed keys "sink" a little.
+                self.vr.set_width(hl, w * scale * if pressed { 0.93 } else { 1.0 });
+                self.kb.hl_drawn[hand] = Some((k, pressed));
             }
-            return;
-        };
-        let pressed = Instant::now() < self.kb.hl_flash_until;
-        let (x, y, w, hgt) = ui::key_rect(&self.kb.keys[k]);
-        let scale = KB_W_M / ui::KB_W as f32;
-        if self.kb.hl_drawn != Some((k, pressed)) {
-            let c = ui::key_highlight(w as u32, hgt as u32, pressed);
-            self.set_image(self.kb.hl, &c);
-            // Pressed keys "sink" a little.
-            self.vr.set_width(self.kb.hl, w * scale * if pressed { 0.93 } else { 1.0 });
-            self.kb.hl_drawn = Some((k, pressed));
-        }
-        let (cx, cy) = (x + w / 2.0, y + hgt / 2.0);
-        let local = Mat34::pitch_translate(0.0, [(cx - ui::KB_W as f32 / 2.0) * scale, (ui::KB_H as f32 / 2.0 - cy) * scale, 0.002]);
-        self.vr.set_transform_absolute(self.kb.hl, &self.kb_tf().mul(&local));
-        if !self.kb.hl_on {
-            self.vr.show(self.kb.hl);
-            self.kb.hl_on = true;
+            let (cx, cy) = (x + w / 2.0, y + hgt / 2.0);
+            let local = Mat34::pitch_translate(0.0, [(cx - ui::KB_W as f32 / 2.0) * scale, (ui::KB_H as f32 / 2.0 - cy) * scale, 0.002]);
+            self.vr.set_transform_absolute(hl, &self.kb_tf().mul(&local));
+            if !self.kb.hl_on[hand] {
+                self.vr.show(hl);
+                self.kb.hl_on[hand] = true;
+            }
         }
     }
 
@@ -2348,7 +2351,9 @@ impl Drop for App {
         }
         self.vr.destroy_overlay(self.menu);
         self.vr.destroy_overlay(self.kb.handle);
-        self.vr.destroy_overlay(self.kb.hl);
+        for hl in self.kb.hl {
+            self.vr.destroy_overlay(hl);
+        }
         self.vr.destroy_overlay(self.settings);
         if let Some(b) = &self.boot {
             self.vr.destroy_overlay(b.handle);
