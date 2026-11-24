@@ -16,4 +16,11 @@ Copy-Item target/release/ufoverlay.exe, LICENSE, THIRD_PARTY_NOTICES.md, README.
 $zip = Join-Path $root "dist/UFOverlay-$version.zip"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "$stage/*" -DestinationPath $zip
-Write-Host "packaged $zip ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)"
+$exeKb = [math]::Round((Get-Item target/release/ufoverlay.exe).Length / 1KB)
+$zipKb = [math]::Round((Get-Item $zip).Length / 1KB)
+Write-Host "packaged $zip ($zipKb KB, exe $exeKb KB)"
+# On GitHub Actions, show the sizes on the run page — size is a feature here.
+if ($env:GITHUB_STEP_SUMMARY) {
+    "### UFOverlay $version`n| file | size |`n|---|---|`n| ufoverlay.exe | $exeKb KB |`n| UFOverlay-$version.zip | $zipKb KB |" |
+        Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+}

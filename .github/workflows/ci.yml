@@ -3,20 +3,21 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*"] # a v* tag also publishes a GitHub Release with the zip
   pull_request:
+  workflow_dispatch: # "Run workflow" button in the Actions tab
 
 jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: write # attach the zip to GitHub Releases on v* tags
+      contents: write # needed only to attach the zip to a Release
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      # Installs the version pinned in rust-toolchain.toml (+ clippy, rustfmt).
+      - name: Rust toolchain
+        run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
 
