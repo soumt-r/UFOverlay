@@ -12,6 +12,9 @@
 //!    on change.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// `Instant - Duration` panics on a PC that booted less than that long ago
+// (Windows counts Instants from boot). Use `ago()` / `checked_sub` instead.
+#![warn(clippy::unchecked_duration_subtraction)]
 
 mod capture;
 mod config;
@@ -87,6 +90,14 @@ const BOOT_END: f32 = 1.75;
 const BOOT_FRAME: Duration = Duration::from_millis(16);
 const KB_W_M: f32 = 0.56;
 const SET_W_M: f32 = 0.40;
+
+/// `now - d`, or `now` if the clock doesn't go back that far. On Windows an
+/// `Instant` counts from boot, so "an hour ago" doesn't exist on a PC that
+/// was started less than an hour ago — plain subtraction panics there.
+fn ago(d: Duration) -> Instant {
+    let now = Instant::now();
+    now.checked_sub(d).unwrap_or(now)
+}
 
 fn exe_dir() -> PathBuf {
     std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default()
@@ -404,7 +415,8 @@ struct App {
     wrist_force_until: Instant,
     boot: Option<Boot>,
     boot_pending: bool,
-    battery_at: Instant,
+    /// Last battery read; None = read on the next slow tick.
+    battery_at: Option<Instant>,
     batteries: Vec<(char, Option<f32>, bool)>,
 
     last_input: Instant,
@@ -558,7 +570,7 @@ impl App {
             wrist_force_until: now,
             boot: None,
             boot_pending: cfg_boot_anim,
-            battery_at: now - Duration::from_secs(3600),
+            battery_at: None,
             batteries: Vec::new(),
             last_input: now,
             layout_path: exe_dir().join("layout.txt"),
@@ -642,7 +654,7 @@ impl App {
     /// Where the pointer was just before the trigger pull, if it was still on
     /// the same thing; otherwise where it is now.
     fn press_target(&self, h: usize, now_t: Option<Target>) -> Option<Target> {
-        let cutoff = Instant::now() - PRESS_LOOKBACK;
+        let cutoff = ago(PRESS_LOOKBACK);
         let before = self.hands[h].hist.iter().rev().find(|(t, _)| *t <= cutoff).and_then(|(_, t)| *t);
         match (before, now_t) {
             (Some(b), Some(n)) if b.same_object(&n) => Some(b),
@@ -799,7 +811,7 @@ impl App {
             live: false,
             locked: false,
             boost_until: now + Duration::from_secs(2),
-            last_submit: now - Duration::from_secs(1),
+            last_submit: ago(Duration::from_secs(1)),
             dirty: false,
             tb,
             tb_on: false,
@@ -869,7 +881,7 @@ impl App {
         p.cap = cap; // the old capture session closes when dropped
         p.src = src;
         p.dirty = false;
-        p.last_submit = Instant::now() - Duration::from_secs(1);
+        p.last_submit = ago(Duration::from_secs(1));
         p.tb_drawn = None;
         let (h, w, al) = (p.handle, p.width_m, self.cfg.panel_alpha);
         self.apply_panel_tf(i);
@@ -2103,8 +2115,8 @@ impl App {
                 self.vr.set_transform_device_relative(wh, dev, &rel);
             }
         }
-        if self.battery_at.elapsed() >= Duration::from_secs(30) {
-            self.battery_at = Instant::now();
+        if self.battery_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(30)) {
+            self.battery_at = Some(Instant::now());
             let devs = [('L', self.hands[LEFT].dev), ('R', self.hands[RIGHT].dev), ('H', 0u32)];
             self.batteries = devs
                 .iter()
@@ -2360,7 +2372,8 @@ impl App {
 
     fn run(&mut self) {
         let mut e = Event::default();
-        let mut slow_at = Instant::now() - Duration::from_secs(10);
+        let mut slow_at = ago(Duration::from_secs(10));
+        let mut first_slow = true;
         loop {
             let now = Instant::now();
             let tick = if self.engaged() {
@@ -2384,7 +2397,8 @@ impl App {
             if self.boot_pending && (Instant::now() - self.t0) > Duration::from_secs(4) {
                 self.boot_pending = false;
             }
-            if slow_at.elapsed() >= Duration::from_secs(1) {
+            if first_slow || slow_at.elapsed() >= Duration::from_secs(1) {
+                first_slow = false;
                 slow_at = Instant::now();
                 self.slow_tick();
                 if cfg!(debug_assertions) {
