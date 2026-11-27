@@ -7,6 +7,7 @@ lcid = [0x11]
 
 [menu]
 prompt = "何を表示しますか？"
+switch_prompt = "ここに何を表示しますか？"
 monitor = "モニター"
 monitors = "モニター"
 windows = "ウィンドウ"

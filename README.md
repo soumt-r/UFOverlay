@@ -71,10 +71,10 @@ Requirements: Windows 10 (1903 or later) or 11, SteamVR, a Direct3D 11 GPU.
 | Click / drag | Point at a panel, trigger |
 | Right-click | B (Y on the left hand) |
 | Scroll | Point, stick up / down |
-| Move a panel | Point, hold grip, move; release to drop it |
+| Move a panel | Point, hold grip, move; release to drop it (it turns to face your hand while you carry it) |
 | Push away / pull closer | Hold grip, stick up / down |
 | Resize | Hold a panel with one hand, grip it with the other, move your hands apart / together |
-| Panel toolbar | Shows under a panel while you point at it: **Video** (keep refreshing at full speed), **Keyboard**, **Pin** (carry it on your other hand), **🔒** (view only), **✕** |
+| Panel toolbar | Shows under a panel while you point at it: **Video** (keep refreshing at full speed), **Keyboard**, **Pin** (carry it on your other hand), **⇄** (show another monitor / window here; if it's already open, the two panels swap places), **🔒** (view only), **✕** |
 | Gather / hide all | Buttons at the bottom of the menu |
 | Move the watch | Point at it, grip, place it (can be locked in Settings) |
 
@@ -130,6 +130,7 @@ i18n/            language packs and keyboard layouts (TOML)
 - So far it has mainly been tested with Quest controllers over Virtual Desktop. Index bindings are included but have seen little testing.
 - Panels are flat (no curvature) and can't be rotated freely yet.
 - The UI scale and default watch position may not suit every headset or hand size yet.
+- When you look far up or down (e.g. lying down), menus and new panels open where you're looking; this is new and may need tuning.
 
 ## License
 

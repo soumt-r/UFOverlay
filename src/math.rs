@@ -92,6 +92,20 @@ impl Mat34 {
         r.set_pos(t);
         r
     }
+    /// Panel at `pos` whose front (+Z) faces `eye`, rolled so its top points
+    /// along `up` as closely as possible (tilts freely, unlike `facing`).
+    pub fn facing_up(pos: V3, eye: V3, up: V3) -> Mat34 {
+        let z = eye - pos;
+        let z = if z.len() < 1e-4 { V3(0., 0., 1.) } else { z.norm() };
+        let mut x = up.cross(z);
+        if x.len() < 1e-4 {
+            x = V3(1., 0., 0.);
+        }
+        let x = x.norm();
+        let y = z.cross(x);
+        Mat34::from_axes(x, y, z, pos)
+    }
+
     /// Upright panel at `pos` whose front (+Z) faces `eye`.
     pub fn facing(pos: V3, eye: V3) -> Mat34 {
         let mut z = eye - pos;
@@ -140,6 +154,17 @@ mod tests {
         let c = a.mul(&b);
         assert!(close(&c.inv_rigid().mul(&c), &Mat34::identity()));
         assert!(close(&a.inv_rigid().mul(&c), &b));
+    }
+
+    #[test]
+    fn facing_up_points_at_eye_with_top_up() {
+        // Lying down: the eye is below the panel (panel on the ceiling side),
+        // head-up is horizontal (+Z here). The panel faces down at the eye.
+        let tf = Mat34::facing_up(V3(0., 2.0, 0.), V3(0., 0.5, 0.), V3(0., 0., -1.));
+        assert!((tf.col(2).1 + 1.0).abs() < 1e-4, "should face straight down");
+        assert!(tf.col(1).dot(V3(0., 0., -1.)) > 0.99, "top follows head-up");
+        let r = ray_quad(V3(0., 0.5, 0.), V3(0., 1., 0.), &tf, 1.0, 0.5);
+        assert!(r.is_some(), "looking up hits it");
     }
 
     #[test]

@@ -155,6 +155,19 @@ fn wrist_default_local(hand: usize) -> Mat34 {
     }
 }
 
+/// (eye, forward, up) from a head pose: level-ish head (within ~30°) → upright,
+/// world-up placement; looking far up / down (lying, reclining) → follow the head.
+fn view_basis_of(head: &Mat34) -> (V3, V3, V3) {
+    let f = head.forward();
+    if f.1.abs() < 0.5 {
+        let mut flat = f;
+        flat.1 = 0.0;
+        (head.pos(), flat.norm(), V3::UP)
+    } else {
+        (head.pos(), f, head.col(1))
+    }
+}
+
 /// Exponential pointer filter that follows fast swings but calms small
 /// tremors: the slower the aim moves, the more it is smoothed.
 fn smooth_pose(prev: &Mat34, cur: &Mat34, dt: f32, strength: u32) -> Mat34 {
@@ -362,6 +375,8 @@ struct App {
     menu_rows: Vec<Source>,
     menu_layout: ui::MenuLayout,
     menu_hover: Option<ui::MenuHit>,
+    /// Menu opened from a panel's ⇄ button: picking a row switches that panel.
+    menu_for: Option<u64>,
 
     kb: Keyboard,
 
@@ -506,6 +521,7 @@ impl App {
             menu_rows: Vec::new(),
             menu_layout: ui::MenuLayout::new(&[]),
             menu_hover: None,
+            menu_for: None,
             kb: Keyboard {
                 handle: kb_handle,
                 open: false,
@@ -656,6 +672,20 @@ impl App {
         p.valid.then_some(p.m)
     }
 
+    /// (eye, forward, up) for placing things where you'll see them. While the
+    /// head is roughly level, panels stand upright in front of you; when you
+    /// look far up or down (lying down, reclining) they follow your head
+    /// instead of staying at eye height out of view.
+    fn view_basis(&self) -> Option<(V3, V3, V3)> {
+        self.hmd().map(|h| view_basis_of(&h))
+    }
+
+    /// `dist` meters ahead, `drop` meters below the line of sight, facing you.
+    fn place_in_view(&self, dist: f32, drop: f32) -> Option<Mat34> {
+        let (eye, f, up) = self.view_basis()?;
+        Some(Mat34::facing_up(eye + f * dist - up * drop, eye, up))
+    }
+
     fn engaged(&self) -> bool {
         self.menu_open
             || self.settings_open
@@ -787,14 +817,69 @@ impl App {
         Some(i)
     }
 
+    /// ⇄ on a panel's toolbar: the source list opens just in front of that panel.
+    fn open_switch_menu(&mut self, id: u64) {
+        let (Some(i), Some((eye, _, up))) = (self.panel_idx(id), self.view_basis()) else { return };
+        let p = self.panel_tf(&self.panels[i]).pos();
+        let to_eye = eye - p;
+        let d = to_eye.len();
+        let pos = p + to_eye.norm() * (d * 0.4).min(0.6);
+        self.open_menu_at(Some(Mat34::facing_up(pos, eye, up)));
+        self.menu_for = Some(id);
+        self.redraw_menu(); // subtitle: "Show what here?"
+    }
+
+    /// Show `src` on panel `id`. If another panel already shows it, the two
+    /// panels trade places instead (so nothing is captured twice).
+    fn switch_source(&mut self, id: u64, src: Source) {
+        let Some(i) = self.panel_idx(id) else { return };
+        if self.panels[i].src.same(&src) || self.panels[i].held.is_some() {
+            return;
+        }
+        if let Some(j) = self.panels.iter().position(|p| p.src.same(&src)) {
+            if self.panels[j].held.is_some() {
+                return;
+            }
+            let (wi, wj) = (self.panel_tf(&self.panels[i]), self.panel_tf(&self.panels[j]));
+            let (a, b) = (self.panels[i].attached, self.panels[j].attached);
+            let (si, sj) = (self.panels[i].width_m, self.panels[j].width_m);
+            self.panels[i].world = wj;
+            self.panels[j].world = wi;
+            self.panels[i].attached = b;
+            self.panels[j].attached = a;
+            self.panels[i].width_m = sj;
+            self.panels[j].width_m = si;
+            for k in [i, j] {
+                let (h, w, al) = (self.panels[k].handle, self.panels[k].width_m, self.cfg.panel_alpha);
+                self.apply_panel_tf(k);
+                self.pop(h, w, al);
+            }
+            log!("swapped panels {} and {}", self.panels[i].id, self.panels[j].id);
+            return;
+        }
+        let cap = match Capture::new(&self.gpu, &src) {
+            Ok(c) => c,
+            Err(e) => {
+                log!("cannot capture {}: {e}", src.label());
+                return;
+            }
+        };
+        log!("panel {id}: now {}", src.label());
+        let p = &mut self.panels[i];
+        p.cap = cap; // the old capture session closes when dropped
+        p.src = src;
+        p.dirty = false;
+        p.last_submit = Instant::now() - Duration::from_secs(1);
+        p.tb_drawn = None;
+        let (h, w, al) = (p.handle, p.width_m, self.cfg.panel_alpha);
+        self.apply_panel_tf(i);
+        self.pop(h, w, al);
+    }
+
     /// Fan every free-standing panel out in an arc in front of the user.
     fn gather(&mut self) {
-        let Some(head) = self.hmd() else { return };
-        let eye = head.pos();
-        let mut f = head.forward();
-        f.1 = 0.0;
-        let f = f.norm();
-        let right = f.cross(V3::UP).norm();
+        let Some((eye, f, up)) = self.view_basis() else { return };
+        let right = f.cross(up).norm();
         let r = self.cfg.spawn_distance_m.max(0.6);
         let ids: Vec<usize> =
             (0..self.panels.len()).filter(|&i| self.panels[i].attached.is_none() && self.panels[i].held.is_none()).collect();
@@ -806,8 +891,8 @@ impl App {
             let ang = (x + w / 2.0) / r; // arc length → angle
             x += w + gap;
             let dir = f * ang.cos() + right * ang.sin();
-            let pos = eye + dir * r - V3(0., 0.08, 0.);
-            self.panels[i].world = Mat34::facing(pos, eye);
+            let pos = eye + dir * r - up * 0.08;
+            self.panels[i].world = Mat34::facing_up(pos, eye, up);
             self.apply_panel_tf(i);
             let (h, wm, a) = (self.panels[i].handle, w, self.cfg.panel_alpha);
             if !self.all_hidden {
@@ -905,18 +990,9 @@ impl App {
 
     /// In front of the user, at spawn distance, along `near` (e.g. the menu) if given.
     fn spawn_tf(&self, near: Option<Mat34>) -> Option<Mat34> {
-        let head = self.hmd()?;
-        let eye = head.pos();
-        let dir = match near {
-            Some(n) => (n.pos() - eye).norm(),
-            None => {
-                let mut f = head.forward();
-                f.1 = 0.0;
-                f.norm()
-            }
-        };
-        let pos = eye + dir * self.cfg.spawn_distance_m;
-        Some(Mat34::facing(pos, eye))
+        let (eye, f, up) = self.view_basis()?;
+        let dir = near.map(|n| (n.pos() - eye).norm()).unwrap_or(f);
+        Some(Mat34::facing_up(eye + dir * self.cfg.spawn_distance_m, eye, up))
     }
 
     fn close_panel(&mut self, id: u64) {
@@ -985,21 +1061,17 @@ impl App {
     // -------------------------------------------------------------- menu
 
     fn open_menu(&mut self) {
+        self.menu_for = None;
         self.open_menu_at(None);
     }
 
     /// Open the menu in front of the user, or exactly at `at` (coming back from settings).
     fn open_menu_at(&mut self, at: Option<Mat34>) {
-        let Some(head) = self.hmd() else { return };
+        let Some(view) = self.place_in_view(0.6, 0.12) else { return };
         let mut rows = sources::monitors();
         rows.extend(sources::windows().into_iter().take(14));
         self.menu_rows = rows;
-        self.menu_tf = at.unwrap_or_else(|| {
-            let mut f = head.forward();
-            f.1 = 0.0;
-            let pos = head.pos() + f.norm() * 0.6 - V3(0., 0.12, 0.);
-            Mat34::facing(pos, head.pos())
-        });
+        self.menu_tf = at.unwrap_or(view);
         self.vr.set_transform_absolute(self.menu, &self.menu_tf);
         self.menu_hover = None;
         self.redraw_menu();
@@ -1011,6 +1083,7 @@ impl App {
     fn close_menu(&mut self) {
         self.vr.hide(self.menu);
         self.menu_open = false;
+        self.menu_for = None;
         for h in &mut self.hands {
             if matches!(h.target, Some(Target::Menu(..))) {
                 h.target = None;
@@ -1024,7 +1097,8 @@ impl App {
             .iter()
             .map(|s| (s.label(), matches!(s, Source::Monitor { .. }), self.panels.iter().any(|p| p.src.same(s))))
             .collect();
-        let (c, lay) = ui::menu(&rows, self.menu_hover, self.all_hidden);
+        let prompt = if self.menu_for.is_some() { i18n::tr("menu.switch_prompt") } else { i18n::tr("menu.prompt") };
+        let (c, lay) = ui::menu(&rows, self.menu_hover, self.all_hidden, prompt);
         self.menu_layout = lay;
         self.set_image(self.menu, &c);
     }
@@ -1233,12 +1307,10 @@ impl App {
     // ---------------------------------------------------------- keyboard
 
     fn open_keyboard(&mut self, for_panel: Option<u64>) {
-        let Some(head) = self.hmd() else { return };
-        let mut f = head.forward();
-        f.1 = 0.0;
-        let pos = head.pos() + f.norm() * 0.45 - V3(0., 0.32, 0.);
-        // Upright toward the eye, then tilted back like a desk keyboard.
-        self.kb.tf = Mat34::facing(pos, head.pos()).mul(&Mat34::pitch_translate(-35.0, [0.0, 0.0, 0.0]));
+        let Some((eye, f, up)) = self.view_basis() else { return };
+        let pos = eye + f * 0.45 - up * 0.32;
+        // Facing you below your line of sight, then tilted back like a desk keyboard.
+        self.kb.tf = Mat34::facing_up(pos, eye, up).mul(&Mat34::pitch_translate(-35.0, [0.0, 0.0, 0.0]));
         self.kb.held = None;
         self.kb.for_panel = for_panel;
         self.vr.set_transform_absolute(self.kb.handle, &self.kb.tf);
@@ -1488,7 +1560,7 @@ impl App {
                     let tf = self.panel_tf(&self.panels[i]);
                     let rel = inv.mul(&tf);
                     self.panels[i].held = Some((h, rel));
-                    self.panels[i].held_smooth = (self.cfg.smoothing > 0).then_some(tf);
+                    self.panels[i].held_smooth = Some(tf);
                     self.hands[h].holding = Some(Held::Panel(id));
                     self.apply_panel_tf(i);
                 }
@@ -1702,6 +1774,7 @@ impl App {
                         self.layout_dirty = true;
                         self.redraw_toolbar(i);
                     }
+                    Some(ui::Action::Switch) => self.open_switch_menu(id),
                     Some(ui::Action::Lock) => {
                         self.panels[i].locked = !self.panels[i].locked;
                         self.layout_dirty = true;
@@ -1766,6 +1839,13 @@ impl App {
                 if trig_down {
                     self.haptic(h, 0.3);
                     match hover {
+                        Some(ui::MenuHit::Source(k)) if self.menu_for.is_some() => {
+                            let pid = self.menu_for.unwrap();
+                            if let Some(src) = self.menu_rows.get(k).cloned() {
+                                self.close_menu();
+                                self.switch_source(pid, src);
+                            }
+                        }
                         Some(ui::MenuHit::Source(k)) => {
                             if let Some(src) = self.menu_rows.get(k).cloned() {
                                 let near = Some(self.menu_tf);
@@ -1846,18 +1926,26 @@ impl App {
 
     /// Held panels / keyboard follow the hand through the jitter filter.
     fn smooth_held(&mut self, dt: f32) {
-        if self.cfg.smoothing == 0 {
-            return;
-        }
+        let up = self.view_basis().map_or(V3::UP, |b| b.2);
         for i in 0..self.panels.len() {
             let p = &self.panels[i];
             let (Some((h, rel)), Some(prev)) = (p.held, p.held_smooth) else { continue };
             let Some(raw) = self.hands[h].raw else { continue };
-            let s = smooth_pose(&prev, &raw.mul(&rel), dt, self.cfg.smoothing);
+            // Carried at the grab offset, but turned to face the controller so
+            // it never ends up edge-on while you move it around.
+            let pos = raw.mul(&rel).pos();
+            let target = Mat34::facing_up(pos, raw.pos(), up);
+            let mut s = smooth_pose(&prev, &target, dt, self.cfg.smoothing.max(1));
+            if self.cfg.smoothing == 0 {
+                s.set_pos(pos); // no position smoothing; only the turn eases in
+            }
             let off = p.tb_offset();
             self.vr.set_transform_absolute(p.handle, &s);
             self.vr.set_transform_absolute(p.tb, &s.mul(&off));
             self.panels[i].held_smooth = Some(s);
+        }
+        if self.cfg.smoothing == 0 {
+            return;
         }
         if let (Some((h, rel)), Some(prev)) = (self.kb.held, self.kb.held_smooth) {
             if let Some(raw) = self.hands[h].raw {
@@ -2597,6 +2685,23 @@ mod tests {
         // A deliberate 5 cm move in one tick (≈4.5 m/s) → followed almost fully.
         let moved = smooth_pose(&prev, &at(0.05), 0.011, 1).pos().0;
         assert!(moved > 0.04, "move only reached {moved}");
+    }
+
+    #[test]
+    fn view_basis_stands_upright_but_follows_a_lying_head() {
+        // Standing, looking slightly down: forward is flattened, up is world up.
+        let standing = Mat34::pitch_translate(-15.0, [0.0, 1.7, 0.0]);
+        let (_, f, up) = view_basis_of(&standing);
+        assert!(f.1.abs() < 1e-4 && up == V3::UP);
+        // Lying on your back, looking at the ceiling (head pitched up 85°):
+        // forward points up and "up" is the head's own up (toward the top of the head).
+        let lying = Mat34::pitch_translate(85.0, [0.0, 0.5, 0.0]);
+        let (eye, f, up) = view_basis_of(&lying);
+        assert!(f.1 > 0.95, "forward should point at the ceiling, got {f:?}");
+        assert!(up.1.abs() < 0.2, "up should be roughly horizontal, got {up:?}");
+        // Something placed in view is actually in front of the eyes.
+        let tf = Mat34::facing_up(eye + f * 0.6 - up * 0.12, eye, up);
+        assert!((tf.pos() - eye).norm().dot(f) > 0.95);
     }
 
     #[test]

@@ -244,6 +244,15 @@ fn icon_pin(c: &mut Canvas, x: f32, y: f32, s: f32, col: Rgba) {
     c.circle(x + s * 0.5, y + s * 0.38, s * 0.11, SKY_2);
 }
 
+fn icon_swap(c: &mut Canvas, x: f32, y: f32, s: f32, col: Rgba) {
+    // ⇄ : an arrow to the right above an arrow to the left.
+    let t = s * 0.11;
+    c.line(x + s * 0.12, y + s * 0.32, x + s * 0.72, y + s * 0.32, t, col);
+    c.triangle([(x + s * 0.66, y + s * 0.14), (x + s * 0.66, y + s * 0.50), (x + s * 0.92, y + s * 0.32)], col);
+    c.line(x + s * 0.88, y + s * 0.70, x + s * 0.28, y + s * 0.70, t, col);
+    c.triangle([(x + s * 0.34, y + s * 0.52), (x + s * 0.34, y + s * 0.88), (x + s * 0.08, y + s * 0.70)], col);
+}
+
 fn icon_lock(c: &mut Canvas, x: f32, y: f32, s: f32, col: Rgba, bg: Rgba, open: bool) {
     // Shackle (lifted to one side when unlocked) + body + keyhole.
     let (l, r, top) = (x + s * 0.28, x + s * 0.72, y + s * 0.08);
@@ -326,6 +335,7 @@ pub enum Action {
     Live,
     Keyboard,
     Pin,
+    Switch,
     Lock,
     Close,
 }
@@ -336,7 +346,7 @@ pub struct Button {
     pub action: Action,
 }
 
-pub const TB_W: u32 = 780;
+pub const TB_W: u32 = 860;
 pub const TB_H: u32 = 96;
 
 pub struct ToolbarState {
@@ -357,10 +367,11 @@ pub fn toolbar(st: &ToolbarState) -> (Canvas, Vec<Button>) {
     let bh = h - pad * 2.0;
     let mut labels: Vec<Label> = Vec::new();
     let mut buttons = Vec::new();
-    let specs: [(f32, &str, bool, Action); 5] = [
+    let specs: [(f32, &str, bool, Action); 6] = [
         (188.0, tr("toolbar.video"), st.live, Action::Live),
         (188.0, tr("toolbar.keyboard"), st.kb_open, Action::Keyboard),
         (188.0, if st.pinned { tr("toolbar.pinned") } else { tr("toolbar.pin") }, st.pinned, Action::Pin),
+        (bh, "", false, Action::Switch),
         (bh, "", st.locked, Action::Lock),
         (bh, "", false, Action::Close),
     ];
@@ -375,6 +386,7 @@ pub fn toolbar(st: &ToolbarState) -> (Canvas, Vec<Button>) {
             Action::Live => icon_play(&mut c, x + 26.0, iy, is, if on { INK } else { MINT }),
             Action::Keyboard => icon_keyboard(&mut c, x + 22.0, iy, is * 1.15, if on { INK } else { LAVENDER }),
             Action::Pin => icon_pin(&mut c, x + 26.0, iy, is, if on { INK } else { BULB }),
+            Action::Switch => icon_swap(&mut c, x + (bw - is) / 2.0, iy, is, LAVENDER),
             Action::Lock => {
                 let bg = if on { MINT } else { SKY_2 };
                 icon_lock(&mut c, x + (bw - is) / 2.0, iy, is, if on { INK } else { DIM }, bg, !on)
@@ -459,7 +471,8 @@ impl MenuLayout {
     }
 }
 
-pub fn menu(items: &[MenuItem], hover: Option<MenuHit>, all_hidden: bool) -> (Canvas, MenuLayout) {
+/// `prompt` is the subtitle (what picking a row will do).
+pub fn menu(items: &[MenuItem], hover: Option<MenuHit>, all_hidden: bool, prompt: &str) -> (Canvas, MenuLayout) {
     let lay = MenuLayout::new(items);
     let w = MENU_W as f32;
     let mut c = Canvas::new(MENU_W, lay.h, [0, 0, 0, 0]);
@@ -467,7 +480,7 @@ pub fn menu(items: &[MenuItem], hover: Option<MenuHit>, all_hidden: bool) -> (Ca
     c.round_rect(0.0, 0.0, w, lay.h as f32, 34.0, SKY);
     mascot(&mut c, 78.0, 58.0, 104.0, 0.6, false);
     labels.push(label(146, 26, 400, 40, "UFOverlay", 30, TEXT, Align::Left, true));
-    labels.push(label(146, 64, 400, 30, tr("menu.prompt"), 21, DIM, Align::Left, false));
+    labels.push(label(146, 64, 380, 30, prompt.to_string(), 21, DIM, Align::Left, false));
     let gear_on = hover == Some(MenuHit::Settings);
     c.circle(GEAR.0 + GEAR.2 / 2.0, GEAR.1 + GEAR.2 / 2.0, GEAR.2 / 2.0, if gear_on { MINT } else { SKY_2 });
     icon_gear(&mut c, GEAR.0 + 13.0, GEAR.1 + 13.0, GEAR.2 - 26.0, if gear_on { INK } else { DIM }, if gear_on { MINT } else { SKY_2 });
@@ -939,7 +952,7 @@ mod tests {
     #[test]
     fn toolbar_buttons_hit_regions_dont_overlap() {
         let (_, b) = toolbar(&ToolbarState { live: false, kb_open: false, pinned: false, locked: false });
-        assert_eq!(b.len(), 5);
+        assert_eq!(b.len(), 6);
         for w in b.windows(2) {
             assert!(w[0].x1 <= w[1].x0);
         }
@@ -980,7 +993,7 @@ mod tests {
             ("Spotify Premium".into(), false, false),
             ("YouTube - Mozilla Firefox".into(), false, true),
         ];
-        save("menu.png", &menu(&items, Some(MenuHit::Source(1)), false).0);
+        save("menu.png", &menu(&items, Some(MenuHit::Source(1)), false, tr("menu.prompt")).0);
         save("toolbar.png", &toolbar(&ToolbarState { live: true, kb_open: false, pinned: false, locked: false }).0);
         let rows: Vec<RowView> = crate::settings::items()
             .into_iter()
@@ -1048,7 +1061,7 @@ mod tests {
             ("카카오톡".into(), false, false),
             ("Claude".into(), false, true),
         ];
-        write_png(&dir.join("menu.png"), &menu(&items, Some(MenuHit::Source(1)), false).0);
+        write_png(&dir.join("menu.png"), &menu(&items, Some(MenuHit::Source(1)), false, tr("menu.prompt")).0);
         write_png(&dir.join("toolbar.png"), &toolbar(&ToolbarState { live: true, kb_open: false, pinned: true, locked: true }).0);
         let mods = KbMods { shift: false, ctrl: false, alt: false };
         for (name, lcid, native) in [("ko_han", 0x12u16, true), ("ko_eng", 0x12, false), ("ja_on", 0x11, true), ("en", 0x09, false)] {
@@ -1060,7 +1073,7 @@ mod tests {
         }
         for code in ["ja", "en"] {
             crate::i18n::set(code);
-            write_png(&dir.join(format!("menu_{code}.png")), &menu(&items, None, false).0);
+            write_png(&dir.join(format!("menu_{code}.png")), &menu(&items, None, false, tr("menu.prompt")).0);
             write_png(
                 &dir.join(format!("toolbar_{code}.png")),
                 &toolbar(&ToolbarState { live: false, kb_open: true, pinned: false, locked: false }).0,
@@ -1082,6 +1095,6 @@ mod tests {
             RowView { section: "손목", label: "시계 위치", ctrl: Ctrl::Action("처음대로") },
         ];
         write_png(&dir.join("settings.png"), &settings(&rows, Some(SetHit::Plus(0))).0);
-        write_png(&dir.join("menu_gear.png"), &menu(&items, Some(MenuHit::Settings), false).0);
+        write_png(&dir.join("menu_gear.png"), &menu(&items, Some(MenuHit::Settings), false, tr("menu.prompt")).0);
     }
 }

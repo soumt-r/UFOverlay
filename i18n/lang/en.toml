@@ -10,6 +10,7 @@ lcid = [0x09]             # Windows UI language id(s); "auto" picks this pack
 
 [menu]
 prompt = "What should I show?"      # menu subtitle under "UFOverlay"
+switch_prompt = "Show what here?"         # menu subtitle when switching a panel
 monitor = "Monitor"                 # "Monitor 1 · 2560×1440"
 monitors = "Monitors"               # section header
 windows = "Windows"                 # section header (app windows)
